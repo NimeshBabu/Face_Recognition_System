@@ -48,7 +48,7 @@ c) police_routes.py
         GET /police/cases
         GET /police/case/<case_id>
         POST /police/login
-        POST /police/report-found
+
 
 d) admin_routes.py
     Handles super admin operations.
@@ -116,7 +116,7 @@ d) firebase_service.py (recommended)
         delete_case()
 
 e) auth_service.py
-    Handles login + JWT authentication.
+    Handles login + JWT authentication. create and verify JWT tokens
 
     Functions:
         generate_token(user_id, role)
@@ -150,6 +150,7 @@ Police
 Admin
     GET /admin/all-cases
     GET /admin/users
+    GET /admin/police
     POST /admin/create-police
     DELETE /admin/case/<id>
 
