@@ -3,7 +3,6 @@ const router = express.Router();
 
 const policeController = require('../controllers/policeController');
 const authMiddleware = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
 
 
 // POLICE LOGIN

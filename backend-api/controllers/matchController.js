@@ -8,7 +8,7 @@ const aiService = require("../services/aiService");
 exports.matchFound = async (req, res) => {
     try {
 
-        const stationId = req.user.station_id;
+        const authenticatedStationId = req.user.user_id;
         const file = req.file;
 
         if (!file) {
@@ -24,7 +24,7 @@ exports.matchFound = async (req, res) => {
         const foundRef = await db.collection("found_reports").add({
             image_path: imagePath,
             embedding,
-            police_station_id: stationId,
+            police_station_id: authenticatedStationId,
             timestamp: new Date()
         });
 
@@ -65,7 +65,7 @@ exports.matchFound = async (req, res) => {
                 missing_case_id: match.case_id,
                 found_case_id: foundCaseId,
                 similarity_score: match.similarity,
-                matched_by_police_id: stationId,
+                matched_by_police_id: authenticatedStationId,
                 status: "pending",
                 created_at: new Date()
             });
@@ -96,6 +96,7 @@ exports.matchFound = async (req, res) => {
 exports.confirmMatch = async (req, res) => {
     try {
 
+        const authenticatedStationId = req.user.user_id;
         const { log_id } = req.body;
 
         if (!log_id) {
@@ -112,20 +113,36 @@ exports.confirmMatch = async (req, res) => {
         const logData = logDoc.data();
         const caseId = logData.missing_case_id;
 
+        const caseRef = db.collection("missing_cases").doc(caseId);
+        const caseDoc = await caseRef.get();
+
+        if (!caseDoc.exists) {
+            return res.status(404).json({ error: "Missing case not found" });
+        }
+
+        const caseData = caseDoc.data();
+
+        if (caseData.case_details?.police_station_id !== authenticatedStationId) {
+            return res.status(403).json({
+                error: "Forbidden: only the registering station can confirm this match"
+            });
+        }
+
         // Update log
         await logRef.update({
-            status: "confirmed"
+            status: "confirmed",
+            confirmed_by_station_id: authenticatedStationId,
+            confirmed_at: new Date()
         });
 
         // Update case
-        const caseRef = db.collection("missing_cases").doc(caseId);
-
         await caseRef.update({
             "system_data.status": "found",
             "ai_data.similarity_score": logData.similarity_score,
             "ai_data.matched_case_id": caseId,
             "system_data.found_by_station": logData.matched_by_police_id,
-            "system_data.found_at": new Date()
+            "system_data.found_at": new Date(),
+            "system_data.confirmed_by_station": authenticatedStationId
         });
 
         res.json({
@@ -145,6 +162,7 @@ exports.confirmMatch = async (req, res) => {
 exports.rejectMatch = async (req, res) => {
     try {
 
+        const authenticatedStationId = req.user.user_id;
         const { log_id } = req.body;
 
         if (!log_id) {
@@ -152,9 +170,33 @@ exports.rejectMatch = async (req, res) => {
         }
 
         const logRef = db.collection("match_logs").doc(log_id);
+        const logDoc = await logRef.get();
+
+        if (!logDoc.exists) {
+            return res.status(404).json({ error: "Match log not found" });
+        }
+
+        const logData = logDoc.data();
+
+        const caseRef = db.collection("missing_cases").doc(logData.missing_case_id);
+        const caseDoc = await caseRef.get();
+
+        if (!caseDoc.exists) {
+            return res.status(404).json({ error: "Missing case not found" });
+        }
+
+        const caseData = caseDoc.data();
+
+        if (caseData.case_details?.police_station_id !== authenticatedStationId) {
+            return res.status(403).json({
+                error: "Forbidden: only the registering station can reject this match"
+            });
+        }
 
         await logRef.update({
-            status: "rejected"
+            status: "rejected",
+            rejected_by_station_id: authenticatedStationId,
+            rejected_at: new Date()
         });
 
         res.json({

@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
 const authMiddleware = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const { uploadMissing } = require("../middleware/uploadMiddleware");
 
 // User registration
 router.post("/register", userController.register);
@@ -15,7 +15,7 @@ router.post(
     "/report-missing",
     authMiddleware.verifyToken,
     authMiddleware.requireRole("user"),
-    upload.single("photo"),
+    uploadMissing.single("photo"),
     userController.reportMissing
 );
 
@@ -34,6 +34,14 @@ router.get(
     authMiddleware.verifyToken,
     authMiddleware.requireRole("user"),
     userController.getCaseById
+);
+
+// GET POLICE STATIONS (for missing report dropdown)
+router.get(
+    "/police-stations",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("user"),
+    userController.getPoliceStations
 );
 
 

@@ -12,36 +12,26 @@ const ensureFolder = (folder) => {
     }
 };
 
-// Storage configuration
-const storage = multer.diskStorage({
+const createStorage = (folder) => {
+    return multer.diskStorage({
+        destination: function (req, file, cb) {
+            const uploadPath = path.join(BASE_UPLOAD_DIR, folder);
 
-    destination: function (req, file, cb) {
+            ensureFolder(uploadPath);
 
-        // Default category
-        let folder = "missing_persons";
+            cb(null, uploadPath);
+        },
 
-        // Allow dynamic folder (future use)
-        if (req.body.upload_type === "found") {
-            folder = "found_persons";
+        filename: function (req, file, cb) {
+            const uniqueName =
+                Date.now() + "-" + Math.round(Math.random() * 1e9);
+
+            const extension = path.extname(file.originalname);
+
+            cb(null, uniqueName + extension);
         }
-
-        const uploadPath = path.join(BASE_UPLOAD_DIR, folder);
-
-        ensureFolder(uploadPath);
-
-        cb(null, uploadPath);
-    },
-
-    filename: function (req, file, cb) {
-
-        const uniqueName =
-            Date.now() + "-" + Math.round(Math.random() * 1e9);
-
-        const extension = path.extname(file.originalname);
-
-        cb(null, uniqueName + extension);
-    }
-});
+    });
+};
 
 
 // File filter (only images)
@@ -63,14 +53,20 @@ const fileFilter = (req, file, cb) => {
 };
 
 
-// Multer upload instance
-const upload = multer({
-    storage: storage,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: fileFilter
-});
+const createUpload = (folder) => {
+    return multer({
+        storage: createStorage(folder),
+        limits: {
+            fileSize: 5 * 1024 * 1024 // 5MB
+        },
+        fileFilter: fileFilter
+    });
+};
 
+const uploadMissing = createUpload("missing_persons");
+const uploadFound = createUpload("found_persons");
 
-module.exports = upload;
+module.exports = {
+    uploadMissing,
+    uploadFound
+};

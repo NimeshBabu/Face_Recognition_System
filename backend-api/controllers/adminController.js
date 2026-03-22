@@ -8,14 +8,51 @@ const bcrypt = require("bcryptjs");
 exports.setupAdmin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password) {
+
+        const configuredSetupKey = process.env.ADMIN_SETUP_KEY;
+        const providedSetupKey = req.headers["x-setup-key"];
+
+        if (!configuredSetupKey) {
+            return res.status(500).json({ error: "ADMIN_SETUP_KEY is not configured" });
+        }
+
+        if (providedSetupKey !== configuredSetupKey) {
+            return res.status(403).json({ error: "Invalid setup key" });
+        }
+
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail || !password) {
             return res.status(400).json({ error: "Email and password required" });
         }
 
+        const existingAdminSnapshot = await db
+            .collection("users")
+            .where("role", "==", "admin")
+            .limit(1)
+            .get();
+
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Allow recovery: if an admin already exists, rotate credentials using setup key.
+        if (!existingAdminSnapshot.empty) {
+            const existingAdminDoc = existingAdminSnapshot.docs[0];
+
+            await existingAdminDoc.ref.update({
+                email: normalizedEmail,
+                password_hash: hashedPassword,
+                role: "admin",
+                updated_at: new Date()
+            });
+
+            return res.json({
+                message: "Admin setup already completed. Credentials updated.",
+                admin_id: existingAdminDoc.id
+            });
+        }
+
         const adminRef = await db.collection("users").add({
-            email,
+            email: normalizedEmail,
             password_hash: hashedPassword,
             role: "admin",
             created_at: new Date()
@@ -34,12 +71,14 @@ exports.setupAdmin = async (req, res) => {
 exports.adminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password)
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail || !password)
             return res.status(400).json({ error: "Email and password required" });
 
         const snapshot = await db
             .collection("users")
-            .where("email", "==", email)
+            .where("email", "==", normalizedEmail)
             .where("role", "==", "admin")
             .limit(1)
             .get();

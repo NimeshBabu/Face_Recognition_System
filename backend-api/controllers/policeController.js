@@ -2,6 +2,23 @@ const bcrypt = require("bcryptjs");
 const db = require("../config/firebaseConfig");
 const { generateToken } = require("../services/authService");
 
+const toPublicPhotoUrl = (req, storedImagePath) => {
+    if (!storedImagePath) {
+        return null;
+    }
+
+    const normalizedPath = String(storedImagePath).replace(/\\/g, "/");
+    const marker = "/uploads/";
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+
+    if (markerIndex < 0) {
+        return null;
+    }
+
+    const uploadPath = normalizedPath.slice(markerIndex);
+    return `${req.protocol}://${req.get("host")}${uploadPath}`;
+};
+
 
 // ------------------------------------------------
 // POLICE LOGIN
@@ -58,11 +75,11 @@ exports.login = async (req, res) => {
 exports.getCases = async (req, res) => {
     try {
 
-        const stationId = req.user.station_id;
+        const authenticatedStationId = req.user.user_id;
 
         const snapshot = await db
             .collection("missing_cases")
-            .where("case_details.police_station_id", "==", stationId)
+            .where("case_details.police_station_id", "==", authenticatedStationId)
             .get();
 
         const cases = [];
@@ -77,7 +94,8 @@ exports.getCases = async (req, res) => {
                 age: data.basic_info?.age,
                 gender: data.basic_info?.gender,
                 status: data.system_data?.status,
-                missing_date: data.basic_info?.missing_date
+                missing_date: data.basic_info?.missing_date,
+                photo_url: toPublicPhotoUrl(req, data.ai_data?.image_url)
             });
 
         });
@@ -96,6 +114,7 @@ exports.getCases = async (req, res) => {
 exports.getCaseDetails = async (req, res) => {
     try {
 
+        const authenticatedStationId = req.user.user_id;
         const { caseId } = req.params;
 
         const doc = await db
@@ -107,9 +126,15 @@ exports.getCaseDetails = async (req, res) => {
             return res.status(404).json({ error: "Case not found" });
         }
 
+        const caseData = doc.data();
+
+        if (caseData.case_details?.police_station_id !== authenticatedStationId) {
+            return res.status(403).json({ error: "Forbidden: access denied" });
+        }
+
         res.json({
             case_id: caseId,
-            case_data: doc.data()
+            case_data: caseData
         });
 
     } catch (err) {

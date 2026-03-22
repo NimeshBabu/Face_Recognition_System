@@ -3,7 +3,7 @@ const router = express.Router();
 
 const matchController = require("../controllers/matchController");
 const authMiddleware = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const { uploadFound } = require("../middleware/uploadMiddleware");
 
 
 // Run AI matching when police uploads a found person
@@ -11,7 +11,7 @@ router.post(
     "/match-found",
     authMiddleware.verifyToken,
     authMiddleware.requireRole("police"),
-    upload.single("photo"),
+    uploadFound.single("photo"),
     matchController.matchFound
 );
 

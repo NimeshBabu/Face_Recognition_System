@@ -4,6 +4,44 @@ const db = require("../config/firebaseConfig");
 const aiService = require("../services/aiService");
 const { generateToken } = require("../services/authService");
 
+const sanitizeForFirestore = (value) => {
+    if (value === undefined) {
+        return null;
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(sanitizeForFirestore);
+    }
+
+    if (value && typeof value === "object" && !(value instanceof Date)) {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, nestedValue]) => [
+                key,
+                sanitizeForFirestore(nestedValue)
+            ])
+        );
+    }
+
+    return value;
+};
+
+const toPublicPhotoUrl = (req, storedImagePath) => {
+    if (!storedImagePath) {
+        return null;
+    }
+
+    const normalizedPath = String(storedImagePath).replace(/\\/g, "/");
+    const marker = "/uploads/";
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+
+    if (markerIndex < 0) {
+        return null;
+    }
+
+    const uploadPath = normalizedPath.slice(markerIndex);
+    return `${req.protocol}://${req.get("host")}${uploadPath}`;
+};
+
 
 
 // ------------------------------------------------
@@ -56,6 +94,10 @@ exports.login = async (req, res) => {
 
         const { email, password } = req.body;
 
+        if (!email || !password) {
+            return res.status(400).json({ error: "Email and password required" });
+        }
+
         const snapshot = await db
             .collection("users")
             .where("email", "==", email)
@@ -96,7 +138,7 @@ exports.login = async (req, res) => {
 exports.reportMissing = async (req, res) => {
     try {
 
-        const userId = req.user.user_id;
+        const authenticatedUserId = req.user.user_id;
         const data = req.body;
         const file = req.file;
 
@@ -109,7 +151,7 @@ exports.reportMissing = async (req, res) => {
         // Generate embedding from AI service
         const embedding = await aiService.generateEmbedding(imagePath);
 
-        const caseData = {
+        const caseData = sanitizeForFirestore({
 
             basic_info: {
                 name: data.name,
@@ -166,11 +208,11 @@ exports.reportMissing = async (req, res) => {
             },
 
             system_data: {
-                reported_by_user_id: userId,
+                reported_by_user_id: authenticatedUserId,
                 status: "missing",
                 created_at: new Date()
             }
-        };
+        });
 
         const docRef = await db.collection("missing_cases").add(caseData);
 
@@ -191,11 +233,11 @@ exports.reportMissing = async (req, res) => {
 exports.getUserCases = async (req, res) => {
     try {
 
-        const userId = req.user.user_id;
+        const authenticatedUserId = req.user.user_id;
 
         const snapshot = await db
             .collection("missing_cases")
-            .where("system_data.reported_by_user_id", "==", userId)
+            .where("system_data.reported_by_user_id", "==", authenticatedUserId)
             .get();
 
         const cases = [];
@@ -208,7 +250,8 @@ exports.getUserCases = async (req, res) => {
                 case_id: doc.id,
                 name: data.basic_info?.name,
                 status: data.system_data?.status,
-                missing_date: data.basic_info?.missing_date
+                missing_date: data.basic_info?.missing_date,
+                photo_url: toPublicPhotoUrl(req, data.ai_data?.image_url)
             });
 
         });
@@ -227,6 +270,7 @@ exports.getUserCases = async (req, res) => {
 exports.getCaseById = async (req, res) => {
     try {
 
+        const authenticatedUserId = req.user.user_id;
         const { caseId } = req.params;
 
         const doc = await db.collection("missing_cases").doc(caseId).get();
@@ -235,7 +279,38 @@ exports.getCaseById = async (req, res) => {
             return res.status(404).json({ error: "Case not found" });
         }
 
-        res.json(doc.data());
+        const caseData = doc.data();
+
+        if (caseData.system_data?.reported_by_user_id !== authenticatedUserId) {
+            return res.status(403).json({ error: "Forbidden: access denied" });
+        }
+
+        res.json(caseData);
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
+// ------------------------------------------------
+// GET POLICE STATIONS FOR REPORT FORM
+// ------------------------------------------------
+exports.getPoliceStations = async (req, res) => {
+    try {
+        const snapshot = await db.collection("police_stations").get();
+
+        const stations = snapshot.docs.map((doc) => {
+            const data = doc.data();
+
+            return {
+                station_id: doc.id,
+                station_name: data.station_name,
+                location: data.location || ""
+            };
+        });
+
+        res.json({ stations });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
