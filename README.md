@@ -507,35 +507,6 @@ cd ai-service
 python run.py
 ```
 
-## Deployment Notes
-
-Recommended free/demo deployment split:
-
-- Frontend: Vercel or Render Static Site
-- Backend API: Render Web Service
-- AI Service: Hugging Face Spaces or Render Web Service
-- Database: Firebase Firestore
-- Images: Cloudinary or another persistent object storage service
-
-Required production environment variables:
-
-Backend:
-
-```env
-PORT=5000
-JWT_SECRET=replace_with_secure_secret
-ADMIN_SETUP_KEY=replace_with_private_setup_key
-AI_SERVICE_URL=https://your-ai-service-url
-```
-
-Frontend:
-
-```env
-VITE_API_BASE_URL=https://your-backend-api-url
-VITE_API_PREFIX=
-```
-
-Important: the current Firebase setup reads a local `serviceAccountKey.json` file. For production, it is safer to load Firebase credentials from environment variables instead of shipping a JSON file with the deployment.
 
 ## Known Limitations
 
