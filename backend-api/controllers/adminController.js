@@ -140,6 +140,7 @@ exports.getAllUsers = async (req, res) => {
                 user_id: doc.id,
                 name: data.name,
                 email: data.email,
+                role: data.role,
                 created_at: data.created_at
             };
         });
