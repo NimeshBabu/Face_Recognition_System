@@ -679,9 +679,15 @@ export default function PoliceDashboard() {
   const [foundCaseId, setFoundCaseId] = useState("");
   const [matching, setMatching] = useState(false);
   const [updatingLogId, setUpdatingLogId] = useState("");
-  const [profileName, setProfileName] = useState(session?.name ?? "Police Station");
+  const [profileName, setProfileName] = useState(
+    localStorage.getItem("policeName") ??
+    session?.name ??
+    "Police Station"
+  );
   const [profileEmail, setProfileEmail] = useState(
-    localStorage.getItem("policeEmail") ?? "",
+    session?.email ??
+    localStorage.getItem("policeEmail") ??
+    ""
   );
   const [profilePassword, setProfilePassword] = useState("");
   const [showProfilePassword, setShowProfilePassword] = useState(false);
@@ -847,6 +853,7 @@ export default function PoliceDashboard() {
 
   const saveProfile = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    localStorage.setItem("policeName", profileName.trim());
     localStorage.setItem("policeEmail", profileEmail.trim());
     setProfilePassword("");
     setStatusKind("success");
@@ -1096,8 +1103,13 @@ export default function PoliceDashboard() {
         <form className="wizard-form" onSubmit={saveProfile}>
           <div className="profile-preview">
             <span className="hero-avatar compact-avatar" aria-hidden="true">
-              PS
-            </span>
+                  {profileName
+                    .split(/\s+/)
+                    .map((part) => part[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2) || "U"}
+                </span>
             <div>
               <strong>{profileName || "Police Station"}</strong>
               <span>{profileEmail || "Email not added"}</span>

@@ -60,7 +60,8 @@ exports.login = async (req, res) => {
             message: "Login successful",
             token,
             station_id: doc.id,
-            name: police.station_name
+            name: police.station_name,
+            email: police.email
         });
 
     } catch (err) {

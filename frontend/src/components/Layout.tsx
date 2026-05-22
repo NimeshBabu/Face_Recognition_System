@@ -72,7 +72,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
             )}
             {showAuthButtons && session && <span className="nav-separator">|</span>}
             {session ? (
-              <>
+              <div className="auth-buttons">
                 <span className="session-badge">
                   Signed in as <strong>{session.role}</strong>
                 </span>
@@ -92,7 +92,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
                 >
                   Logout
                 </button>
-              </>
+              </div>
             ) : showAuthButtons ? (
               <div className="auth-buttons">
                 <Link to="/user/auth" className="button ghost small">
@@ -182,7 +182,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
                       <circle cx="12" cy="10" r="3" />
                     </svg>
                   </span>
-                  <span>Location</span>
+                  <span>Kathmandu, Nepal</span>
                 </a>
                 <a href="mailto:support@pahichan.com">
                   <span className="footer-link-icon">

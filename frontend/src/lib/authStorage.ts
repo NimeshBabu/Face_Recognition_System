@@ -5,6 +5,7 @@ export interface AuthSession {
   role: UserRole;
   id: string;
   name?: string;
+  email?: string;
 }
 
 const AUTH_STORAGE_KEY = "frs_auth_session";

@@ -214,7 +214,10 @@ export default function UserDashboard() {
       setUserName(storedName);
     }
 
-    if (storedEmail) {
+    if (session?.email) {
+      setProfileEmail(session.email);
+      localStorage.setItem("userEmail", session.email);
+    } else if (storedEmail) {
       setProfileEmail(storedEmail);
     }
   }, []);
@@ -718,7 +721,7 @@ export default function UserDashboard() {
                     .toUpperCase()
                     .slice(0, 2) || "U"}
                 </span>
-                <div>
+                <div className="profile-preview-info">
                   <strong>{userName || "User"}</strong>
                   <span>{profileEmail || "Email not added"}</span>
                 </div>

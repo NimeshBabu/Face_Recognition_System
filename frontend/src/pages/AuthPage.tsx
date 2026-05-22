@@ -138,6 +138,9 @@ export default function AuthPage({ role }: AuthPageProps) {
         password,
       });
 
+
+      console.log("Login Response:", loginRes.data);
+
       const token = loginRes.data?.token as string;
       const id =
         (loginRes.data?.user_id as string | undefined) ??
@@ -150,6 +153,7 @@ export default function AuthPage({ role }: AuthPageProps) {
         role,
         id,
         name: loginRes.data?.name,
+        email: loginRes.data?.email,
       });
 
       window.location.href = labels.dashboardPath;

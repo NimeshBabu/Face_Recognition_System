@@ -178,11 +178,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand" aria-label="Pahichan home">
           <span className="brand-mark">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m16.5 16.5 4 4" />
-              <path d="M8.8 11a2.2 2.2 0 0 0 4.4 0 2.2 2.2 0 0 0-4.4 0Z" />
-            </svg>
+            <img src="/glass.svg" alt="Pahichan Logo" className="logo-icon" />
           </span>
           <span>Pahichan</span>
         </Link>
