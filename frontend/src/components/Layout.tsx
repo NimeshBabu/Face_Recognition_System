@@ -119,7 +119,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
             </div>
           </div>
           <div className="footer-bottom">
-            <p>© 2026 Pahichan. Built with React + Vite</p>
+            <p>© {new Date().getFullYear()} Pahichan. All rights reserved.</p>
           </div>
         </div>
       </footer>
