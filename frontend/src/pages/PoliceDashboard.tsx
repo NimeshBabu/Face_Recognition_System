@@ -27,6 +27,11 @@ interface MatchLog {
   case_id: string;
   similarity_score: number;
   status?: "pending" | "confirmed" | "rejected";
+  name?: string;
+  age?: number;
+  gender?: string;
+  photo_url?: string | null;
+  missing_date?: string;
 }
 
 interface BasicInfo {
@@ -552,10 +557,35 @@ function MatchResultCard({
 
   return (
     <article className="police-match-card">
-      <div>
-        <p className="eyebrow">Potential match</p>
-        <h3>Case {match.case_id.slice(0, 10)}</h3>
-        <p className="muted">Log {match.log_id.slice(0, 10)}</p>
+      <div className="match-card-top">
+        {match.photo_url ? (
+          <img
+            src={match.photo_url}
+            alt={match.name ?? "Matched person"}
+            className="match-photo"
+          />
+        ) : (
+          <div className="match-photo placeholder">
+            <Icon name="camera" />
+          </div>
+        )}
+
+        <div className="match-person-info">
+          <h3>{match.name ?? "Unknown Person"}</h3>
+
+          <div className="match-meta">
+            <span>Age {match.age ?? "N/A"}</span>
+            <span>{match.gender ?? "N/A"}</span>
+          </div>
+
+          <p className="muted">
+            Missing since {formatDate(match.missing_date)}
+          </p>
+
+          <p className="muted mono">
+            Case: {match.case_id.slice(0, 10)}
+          </p>
+        </div>
       </div>
 
       <div className="police-match-score">
@@ -565,29 +595,39 @@ function MatchResultCard({
         >
           <span>{scorePercent.toFixed(1)}%</span>
         </div>
-        <StatusBadge status={match.status ?? "pending"} />
+        {match.status === "pending" ? (
+          <StatusBadge status="pending" />
+        ) : null}
       </div>
 
-      <div className="police-match-actions">
-        <button
-          type="button"
-          className="modern-btn primary"
-          disabled={updating}
-          onClick={() => onDecision(match.log_id, "confirm-match")}
-        >
-          <Icon name="check" />
-          Confirm
-        </button>
-        <button
-          type="button"
-          className="modern-btn secondary"
-          disabled={updating}
-          onClick={() => onDecision(match.log_id, "reject-match")}
-        >
-          <Icon name="x" />
-          Reject
-        </button>
-      </div>
+
+      {match.status === "pending" ? (
+        <div className="police-match-actions">
+          <button
+            type="button"
+            className="modern-btn primary"
+            disabled={updating}
+            onClick={() => onDecision(match.log_id, "confirm-match")}
+          >
+            <Icon name="check" />
+            Confirm
+          </button>
+          <button
+            type="button"
+            className="modern-btn secondary"
+            disabled={updating}
+            onClick={() => onDecision(match.log_id, "reject-match")}
+          >
+            <Icon name="x" />
+            Reject
+          </button>
+        </div>
+      ) : (
+        <div className="match-final-status">
+          <StatusBadge status={match.status} />
+        </div>
+      )}
+
     </article>
   );
 }
@@ -624,7 +664,6 @@ function MatchWorkbench({
           <Icon name="upload" />
           <span>
             <strong>{photo ? photo.name : "Upload a clear face photo"}</strong>
-            <small>Image is sent to /match/match-found for AI comparison.</small>
           </span>
           <input
             type="file"
@@ -1103,13 +1142,13 @@ export default function PoliceDashboard() {
         <form className="wizard-form" onSubmit={saveProfile}>
           <div className="profile-preview">
             <span className="hero-avatar compact-avatar" aria-hidden="true">
-                  {profileName
-                    .split(/\s+/)
-                    .map((part) => part[0])
-                    .join("")
-                    .toUpperCase()
-                    .slice(0, 2) || "U"}
-                </span>
+              {profileName
+                .split(/\s+/)
+                .map((part) => part[0])
+                .join("")
+                .toUpperCase()
+                .slice(0, 2) || "U"}
+            </span>
             <div>
               <strong>{profileName || "Police Station"}</strong>
               <span>{profileEmail || "Email not added"}</span>

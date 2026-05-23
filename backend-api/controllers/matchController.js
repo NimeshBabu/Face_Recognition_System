@@ -1,6 +1,22 @@
 const db = require("../config/firebaseConfig");
 const aiService = require("../services/aiService");
 
+const toPublicPhotoUrl = (req, storedImagePath) => {
+    if (!storedImagePath) {
+        return null;
+    }
+
+    const normalizedPath = String(storedImagePath).replace(/\\/g, "/");
+    const marker = "/uploads/";
+    const markerIndex = normalizedPath.lastIndexOf(marker);
+
+    if (markerIndex < 0) {
+        return null;
+    }
+
+    const uploadPath = normalizedPath.slice(markerIndex);
+    return `${req.protocol}://${req.get("host")}${uploadPath}`;
+};
 
 // ------------------------------------------------
 // MATCH FOUND PERSON
@@ -60,7 +76,8 @@ exports.matchFound = async (req, res) => {
         const savedMatches = [];
 
         for (const match of matches) {
-
+            const caseDoc = await db.collection("missing_cases").doc(match.case_id).get();
+            const caseData = caseDoc.data();
             const logRef = await db.collection("match_logs").add({
                 missing_case_id: match.case_id,
                 found_case_id: foundCaseId,
@@ -73,7 +90,19 @@ exports.matchFound = async (req, res) => {
             savedMatches.push({
                 log_id: logRef.id,
                 case_id: match.case_id,
-                similarity_score: match.similarity
+                similarity_score: match.similarity,
+                status: "pending",
+
+                name: caseData?.basic_info?.name ?? "Unknown Person",
+                age: caseData?.basic_info?.age ?? null,
+                gender: caseData?.basic_info?.gender ?? "N/A",
+                missing_date: caseData?.basic_info?.missing_date ?? "",
+
+                photo_url: toPublicPhotoUrl(
+                    req,
+                    caseData?.ai_data?.image_url ??
+                    caseData?.image_url
+                )
             });
 
         }

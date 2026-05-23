@@ -147,7 +147,7 @@ exports.reportMissing = async (req, res) => {
             return res.status(400).json({ error: "Image required" });
         }
 
-        const imagePath = file.path;
+        const imageUrl = `/uploads/missing_persons/${req.file.filename}`;
 
         // Generate embedding from AI service
         const embedding = await aiService.generateEmbedding(imagePath);
@@ -202,7 +202,7 @@ exports.reportMissing = async (req, res) => {
             },
 
             ai_data: {
-                image_url: imagePath,
+                image_url: imageUrl,
                 embedding_vector: embedding,
                 similarity_score: null,
                 matched_case_id: null
