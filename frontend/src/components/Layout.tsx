@@ -144,7 +144,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
               <div className="footer-column footer-connect">
                 <h4>Connect</h4>
                 <a
-                  href="https://www.facebook.com/pahichan"
+                  href="https://www.facebook.com/"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -157,7 +157,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
                 </a>
 
                 <a
-                  href="https://www.instagram.com/pahichan"
+                  href="https://www.instagram.com/"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -172,7 +172,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
                 </a>
 
                 <a
-                  href="https://maps.google.com/?q=Pahichan+Office"
+                  href="https://maps.app.goo.gl/AfumQxywVEUdcgYQ6"
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -182,7 +182,7 @@ export default function Layout({ children, showAuthButtons = true }: LayoutProps
                       <circle cx="12" cy="10" r="3" />
                     </svg>
                   </span>
-                  <span>Kathmandu, Nepal</span>
+                  <span>Gatthaghar, Bhaktapur, Nepal</span>
                 </a>
                 <a href="mailto:support@pahichan.com">
                   <span className="footer-link-icon">
