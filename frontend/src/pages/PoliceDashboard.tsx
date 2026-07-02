@@ -3,7 +3,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
