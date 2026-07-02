@@ -758,7 +758,7 @@ function MatchResultCard({
 
 
 
-const BULK_NOTIFY_THRESHOLD = 2;
+const BULK_NOTIFY_THRESHOLD = 5;
 
 function MatchWorkbench({
   photo,
