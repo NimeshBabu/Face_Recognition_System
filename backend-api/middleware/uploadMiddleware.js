@@ -12,65 +12,79 @@ const ensureFolder = (folder) => {
     }
 };
 
-// Storage configuration
-const storage = multer.diskStorage({
+const createStorage = (folder) => {
+    return multer.diskStorage({
+        destination: function (req, file, cb) {
+            const uploadPath = path.join(BASE_UPLOAD_DIR, folder);
 
-    destination: function (req, file, cb) {
+            ensureFolder(uploadPath);
 
-        // Default category
-        let folder = "missing_persons";
+            cb(null, uploadPath);
+        },
 
-        // Allow dynamic folder (future use)
-        if (req.body.upload_type === "found") {
-            folder = "found_persons";
+        filename: function (req, file, cb) {
+            const uniqueName =
+                Date.now() + "-" + Math.round(Math.random() * 1e9);
+
+            const extension = path.extname(file.originalname).toLowerCase();
+            const allowedExt = [".jpg", ".jpeg", ".png", ".webp"];
+            const safeExt = allowedExt.includes(extension) ? extension : "";
+
+            cb(null, uniqueName + safeExt);
         }
-
-        const uploadPath = path.join(BASE_UPLOAD_DIR, folder);
-
-        ensureFolder(uploadPath);
-
-        cb(null, uploadPath);
-    },
-
-    filename: function (req, file, cb) {
-
-        const uniqueName =
-            Date.now() + "-" + Math.round(Math.random() * 1e9);
-
-        const extension = path.extname(file.originalname);
-
-        cb(null, uniqueName + extension);
-    }
-});
+    });
+};
 
 
 // File filter (only images)
 const fileFilter = (req, file, cb) => {
 
-    const allowedTypes = /jpeg|jpg|png/;
+    const allowedExt = /\.(jpe?g|png|webp)$/i;
+    const allowedMime = /^image\/(jpeg|png|webp)$/i;
 
-    const ext = allowedTypes.test(
-        path.extname(file.originalname).toLowerCase()
-    );
-
-    const mime = allowedTypes.test(file.mimetype);
+    const ext = allowedExt.test(file.originalname);
+    const mime = allowedMime.test(file.mimetype);
 
     if (ext && mime) {
         cb(null, true);
     } else {
-        cb(new Error("Only JPG, JPEG, PNG images allowed"));
+        cb(new Error("Only JPG, JPEG, PNG, or WEBP images allowed"));
     }
 };
 
 
-// Multer upload instance
-const upload = multer({
-    storage: storage,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: fileFilter
-});
+const createUpload = (folder) => {
+    return multer({
+        storage: createStorage(folder),
+        limits: {
+            fileSize: 5 * 1024 * 1024 // 5MB
+        },
+        fileFilter: fileFilter
+    });
+};
+
+const uploadMissing = createUpload("missing_persons");
+const uploadFound = createUpload("found_persons");
 
 
-module.exports = upload;
+// Multer-aware error handler
+function handleUploadError(err, req, res, next) {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ error: "Photo must be under 5MB" });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  if (err) {
+    // Errors thrown from fileFilter land here too
+    return res.status(400).json({ error: err.message });
+  }
+  next();
+}
+
+
+module.exports = {
+    uploadMissing,
+    uploadFound,
+    handleUploadError
+};

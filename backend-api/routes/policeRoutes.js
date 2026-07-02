@@ -3,7 +3,6 @@ const router = express.Router();
 
 const policeController = require('../controllers/policeController');
 const authMiddleware = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
 
 
 // POLICE LOGIN
@@ -29,5 +28,37 @@ router.get(
 
 
 
+
+// UPDATE POLICE PROFILE
+router.put(
+    "/profile",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    policeController.updateProfile
+);
+
+// GET NOTIFICATIONS
+router.get(
+    "/notifications",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    policeController.getNotifications
+);
+
+// MARK NOTIFICATION AS READ
+router.post(
+    "/notifications/:notificationId/read",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    policeController.markNotificationAsRead
+);
+
+// UPDATE CASE STATUS
+router.put(
+    "/case/:caseId/status",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    policeController.updateCaseStatus
+);
 
 module.exports = router;

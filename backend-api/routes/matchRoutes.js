@@ -3,7 +3,7 @@ const router = express.Router();
 
 const matchController = require("../controllers/matchController");
 const authMiddleware = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const { uploadFound } = require("../middleware/uploadMiddleware");
 
 
 // Run AI matching when police uploads a found person
@@ -11,7 +11,7 @@ router.post(
     "/match-found",
     authMiddleware.verifyToken,
     authMiddleware.requireRole("police"),
-    upload.single("photo"),
+    uploadFound.single("photo"),
     matchController.matchFound
 );
 
@@ -33,5 +33,30 @@ router.post(
     matchController.rejectMatch
 );
 
+
+// Notify owner station of cross-station match suggestion
+router.post(
+    "/notify-owner",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.notifyOwner
+);
+
+
+router.post(
+    "/notify-owners-bulk",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.notifyAllOwners
+);
+
+
+// Fetch a single match log by ID (used for notification deep-linking)
+router.get(
+    "/log/:logId",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.getMatchLogById
+);
 
 module.exports = router;

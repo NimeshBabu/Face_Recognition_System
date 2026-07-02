@@ -8,14 +8,51 @@ const bcrypt = require("bcryptjs");
 exports.setupAdmin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password) {
+
+        const configuredSetupKey = process.env.ADMIN_SETUP_KEY;
+        const providedSetupKey = req.headers["x-setup-key"];
+
+        if (!configuredSetupKey) {
+            return res.status(500).json({ error: "ADMIN_SETUP_KEY is not configured" });
+        }
+
+        if (providedSetupKey !== configuredSetupKey) {
+            return res.status(403).json({ error: "Invalid setup key" });
+        }
+
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail || !password) {
             return res.status(400).json({ error: "Email and password required" });
         }
 
+        const existingAdminSnapshot = await db
+            .collection("users")
+            .where("role", "==", "admin")
+            .limit(1)
+            .get();
+
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Allow recovery: if an admin already exists, rotate credentials using setup key.
+        if (!existingAdminSnapshot.empty) {
+            const existingAdminDoc = existingAdminSnapshot.docs[0];
+
+            await existingAdminDoc.ref.update({
+                email: normalizedEmail,
+                password_hash: hashedPassword,
+                role: "admin",
+                updated_at: new Date()
+            });
+
+            return res.json({
+                message: "Admin setup already completed. Credentials updated.",
+                admin_id: existingAdminDoc.id
+            });
+        }
+
         const adminRef = await db.collection("users").add({
-            email,
+            email: normalizedEmail,
             password_hash: hashedPassword,
             role: "admin",
             created_at: new Date()
@@ -34,12 +71,14 @@ exports.setupAdmin = async (req, res) => {
 exports.adminLogin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        if (!email || !password)
+        const normalizedEmail = String(email || "").trim().toLowerCase();
+
+        if (!normalizedEmail || !password)
             return res.status(400).json({ error: "Email and password required" });
 
         const snapshot = await db
             .collection("users")
-            .where("email", "==", email)
+            .where("email", "==", normalizedEmail)
             .where("role", "==", "admin")
             .limit(1)
             .get();
@@ -80,7 +119,8 @@ exports.getAllCases = async (req, res) => {
                 name: data.basic_info?.name,
                 age: data.basic_info?.age,
                 status: data.system_data?.status,
-                police_station_id: data.case_details?.police_station_id
+                police_station_id: data.case_details?.police_station_id,
+                created_at: data.system_data?.created_at || data.basic_info?.missing_date
             };
         });
         res.json({ cases });
@@ -101,6 +141,7 @@ exports.getAllUsers = async (req, res) => {
                 user_id: doc.id,
                 name: data.name,
                 email: data.email,
+                role: data.role,
                 created_at: data.created_at
             };
         });
@@ -171,6 +212,60 @@ exports.deleteCase = async (req, res) => {
 
         await caseRef.delete();
         res.json({ message: "Case deleted successfully", case_id: caseId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
+
+// -------------------------------------------------
+// Delete Police Station
+// -------------------------------------------------
+exports.deletePolice = async (req, res) => {
+    try {
+        const { stationId } = req.params;
+        const stationRef = db.collection("police_stations").doc(stationId);
+        const doc = await stationRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "Police station not found" });
+
+        // Optional safety check: warn/prevent deletion if cases are still assigned
+        const assignedCasesSnapshot = await db
+            .collection("missing_cases")
+            .where("case_details.police_station_id", "==", stationId)
+            .limit(1)
+            .get();
+
+        if (!assignedCasesSnapshot.empty) {
+            return res.status(409).json({
+                error: "Cannot delete station with cases still assigned to it. Reassign or resolve those cases first."
+            });
+        }
+
+        await stationRef.delete();
+        res.json({ message: "Police station deleted successfully", station_id: stationId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// -------------------------------------------------
+// Delete User
+// -------------------------------------------------
+exports.deleteUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const userRef = db.collection("users").doc(userId);
+        const doc = await userRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "User not found" });
+
+        const userData = doc.data();
+        if (userData.role === "admin") {
+            return res.status(403).json({ error: "Admin accounts cannot be deleted" });
+        }
+
+        await userRef.delete();
+        res.json({ message: "User deleted successfully", user_id: userId });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
