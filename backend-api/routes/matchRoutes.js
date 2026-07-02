@@ -34,4 +34,29 @@ router.post(
 );
 
 
+// Notify owner station of cross-station match suggestion
+router.post(
+    "/notify-owner",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.notifyOwner
+);
+
+
+router.post(
+    "/notify-owners-bulk",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.notifyAllOwners
+);
+
+
+// Fetch a single match log by ID (used for notification deep-linking)
+router.get(
+    "/log/:logId",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("police"),
+    matchController.getMatchLogById
+);
+
 module.exports = router;

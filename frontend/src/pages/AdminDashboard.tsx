@@ -8,6 +8,7 @@ import {
 import { AxiosError } from "axios";
 import { API_PATHS, api } from "../lib/api";
 import { loadAuthSession } from "../lib/authStorage";
+import { useStatusDismiss } from "../lib/useStatusDismiss";
 import DashboardLayout from "../components/DashboardLayout";
 
 interface AdminCase {
@@ -16,6 +17,7 @@ interface AdminCase {
   age?: number;
   status?: string;
   police_station_id?: string;
+  created_at?: DateValue;
 }
 
 interface SimpleUser {
@@ -46,10 +48,10 @@ type DateValue =
   | string
   | number
   | {
-      _seconds?: number;
-      seconds?: number;
-      nanoseconds?: number;
-    };
+    _seconds?: number;
+    seconds?: number;
+    nanoseconds?: number;
+  };
 type IconName =
   | "activity"
   | "building"
@@ -167,10 +169,10 @@ function Icon({ name }: { name: IconName }) {
     case "refresh":
       return (
         <svg {...commonProps}>
-          <path d="M21 12a9 9 0 0 1-15.2 6.5L3 16" />
-          <path d="M3 16v5h5" />
-          <path d="M3 12A9 9 0 0 1 18.2 5.5L21 8" />
-          <path d="M21 3v5h-5" />
+          <path d="M21 2v6h-6" />
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M3 22v-6h6" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
         </svg>
       );
     case "shield":
@@ -198,6 +200,8 @@ function Icon({ name }: { name: IconName }) {
           <path d="M16 3.2a4 4 0 0 1 0 7.6" />
         </svg>
       );
+    default:
+      return null;
   }
 }
 
@@ -292,6 +296,55 @@ function StatusBadge({ status }: { status?: string }) {
   );
 }
 
+function Pagination({
+  currentPage,
+  totalItems,
+  pageSize,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  if (totalPages <= 1) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="pagination-bar">
+      <span className="muted pagination-info">
+        Showing {startItem}–{endItem} of {totalItems}
+      </span>
+      <div className="pagination-controls">
+        <button
+          type="button"
+          className="button ghost small"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+        >
+          Previous
+        </button>
+        <span className="pagination-page">
+          Page {currentPage} of {totalPages}
+        </span>
+        <button
+          type="button"
+          className="button ghost small"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 function EmptyState({ children }: { children: ReactNode }) {
   return <div className="empty-state empty-panel">{children}</div>;
 }
@@ -316,7 +369,6 @@ function PasswordField({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder="Create station password"
-          required
         />
         <button
           type="button"
@@ -331,15 +383,26 @@ function PasswordField({
   );
 }
 
+const PAGE_SIZE = 10;
 function CaseTable({
   cases,
   stationNames,
   onDelete,
+  searchQuery,
+  currentPage,
+  onPageChange,
 }: {
   cases: AdminCase[];
   stationNames: Map<string, string>;
   onDelete: (caseId: string) => void;
+  searchQuery: string;
+  currentPage: number;
+  onPageChange: (page: number) => void;
 }) {
+  const paginatedCases = cases.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
   return (
     <div className="data-table-wrapper admin-table-card">
       <table className="data-table">
@@ -354,9 +417,9 @@ function CaseTable({
           </tr>
         </thead>
         <tbody>
-          {cases.map((item) => (
+          {paginatedCases.map((item) => (
             <tr key={item.case_id}>
-              <td className="mono">{item.case_id.slice(0, 10)}</td>
+              <td className="mono">PH-{item.case_id.substring(0, 5).toUpperCase()}</td>
               <td>{item.name ?? "Unnamed"}</td>
               <td>{item.age ?? "N/A"}</td>
               <td>
@@ -365,13 +428,13 @@ function CaseTable({
               <td>
                 {item.police_station_id
                   ? stationNames.get(item.police_station_id) ??
-                    item.police_station_id.slice(0, 10)
+                  `PS-${item.police_station_id.substring(0, 5).toUpperCase()}`
                   : "Unassigned"}
               </td>
               <td>
                 <button
                   type="button"
-                  className="icon-button danger"
+                  className="danger icon-button"
                   onClick={() => onDelete(item.case_id)}
                   aria-label={`Delete case ${item.case_id}`}
                 >
@@ -382,12 +445,38 @@ function CaseTable({
           ))}
         </tbody>
       </table>
-      {cases.length === 0 ? <EmptyState>No cases found.</EmptyState> : null}
+      {cases.length === 0 ? (
+        <EmptyState>
+          {searchQuery ? "No cases match your search." : "No cases found."}
+        </EmptyState>
+      ) : null}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={cases.length}
+        pageSize={PAGE_SIZE}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }
 
-function UsersTable({ users }: { users: SimpleUser[] }) {
+function UsersTable({
+  users,
+  searchQuery,
+  currentPage,
+  onPageChange,
+  onDelete,
+}: {
+  users: SimpleUser[];
+  searchQuery: string;
+  currentPage: number;
+  onPageChange: (page: number) => void
+  onDelete: (userId: string) => void
+}) {
+  const paginatedUsers = users.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
   return (
     <div className="data-table-wrapper admin-table-card">
       <table className="data-table">
@@ -398,12 +487,13 @@ function UsersTable({ users }: { users: SimpleUser[] }) {
             <th>Email</th>
             <th>Role</th>
             <th>Joined</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          {users.map((item) => (
+          {paginatedUsers.map((item) => (
             <tr key={item.user_id}>
-              <td className="mono">{item.user_id.slice(0, 10)}</td>
+              <td className="mono">USR-{item.user_id.substring(0, 5).toUpperCase()}</td>
               <td>{item.name ?? "N/A"}</td>
               <td>{item.email ?? "N/A"}</td>
               <td>
@@ -412,11 +502,35 @@ function UsersTable({ users }: { users: SimpleUser[] }) {
                 </span>
               </td>
               <td className="muted">{formatDate(item.created_at)}</td>
+              <td>
+                {item.role !== "admin" ? (
+                  <button
+                    type="button"
+                    className="danger icon-button"
+                    onClick={() => onDelete(item.user_id)}
+                    aria-label={`Delete user ${item.user_id}`}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                ) : (
+                  <span className="muted" style={{ fontSize: "12px" }}>Protected</span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {users.length === 0 ? <EmptyState>No users found.</EmptyState> : null}
+      {users.length === 0 ? (
+        <EmptyState>
+          {searchQuery ? "No users match your search." : "No users found."}
+        </EmptyState>
+      ) : null}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={users.length}
+        pageSize={PAGE_SIZE}
+        onPageChange={onPageChange}
+      />
     </div>
   );
 }
@@ -424,9 +538,11 @@ function UsersTable({ users }: { users: SimpleUser[] }) {
 function StationCard({
   station,
   assignedCases,
+  onDelete,
 }: {
   station: PoliceStation;
   assignedCases: number;
+  onDelete: (stationId: string) => void;
 }) {
   return (
     <article className="admin-station-card">
@@ -438,6 +554,15 @@ function StationCard({
           <h3>{station.station_name ?? "Unnamed Station"}</h3>
           <p className="muted">{station.location || "No location added"}</p>
         </div>
+        <button
+          type="button"
+          className="danger icon-button"
+          onClick={() => onDelete(station.station_id)}
+          aria-label={`Delete station ${station.station_name ?? station.station_id}`}
+          style={{ marginLeft: "auto" }}
+        >
+          <Icon name="trash" />
+        </button>
       </div>
 
       <dl className="station-facts">
@@ -473,18 +598,43 @@ function CreateStationForm({
   onPasswordToggle: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [touched, setTouched] = useState(false);
+
+  const passwordError =
+    value.stationPassword.length > 0 && value.stationPassword.length < 8
+      ? "Password must be at least 8 characters"
+      : "";
+
+  const emailError =
+    value.stationEmail.length > 0 &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.stationEmail)
+      ? "Enter a valid email address"
+      : "";
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTouched(true);
+
+    if (!value.stationName.trim()) return;
+    if (emailError || !value.stationEmail.trim()) return;
+    if (value.stationPassword.length < 8) return;
+
+    onSubmit(event);
+  };
+
   return (
-    <form className="admin-create-form" onSubmit={onSubmit}>
+    <form className="admin-create-form" onSubmit={handleSubmit} noValidate>
       <label className="form-group">
         <span>Station Name</span>
         <input
           value={value.stationName}
-          onChange={(event) =>
-            onChange({ ...value, stationName: event.target.value })
-          }
+          onChange={(event) => onChange({ ...value, stationName: event.target.value })}
           placeholder="Enter station name"
-          required
+          aria-invalid={touched && !value.stationName.trim()}
         />
+        {touched && !value.stationName.trim() ? (
+          <span className="field-error" role="alert">Station name is required</span>
+        ) : null}
       </label>
 
       <label className="form-group">
@@ -492,12 +642,15 @@ function CreateStationForm({
         <input
           type="email"
           value={value.stationEmail}
-          onChange={(event) =>
-            onChange({ ...value, stationEmail: event.target.value })
-          }
+          onChange={(event) => onChange({ ...value, stationEmail: event.target.value })}
           placeholder="station@example.com"
-          required
+          aria-invalid={Boolean(emailError) || (touched && !value.stationEmail.trim())}
         />
+        {emailError ? (
+          <span className="field-error" role="alert">{emailError}</span>
+        ) : touched && !value.stationEmail.trim() ? (
+          <span className="field-error" role="alert">Email is required</span>
+        ) : null}
       </label>
 
       <PasswordField
@@ -506,14 +659,17 @@ function CreateStationForm({
         onChange={(stationPassword) => onChange({ ...value, stationPassword })}
         onToggle={onPasswordToggle}
       />
+      {passwordError ? (
+        <span className="field-error" role="alert">{passwordError}</span>
+      ) : touched && !value.stationPassword ? (
+        <span className="field-error" role="alert">Password is required</span>
+      ) : null}
 
       <label className="form-group">
         <span>Location</span>
         <input
           value={value.stationLocation}
-          onChange={(event) =>
-            onChange({ ...value, stationLocation: event.target.value })
-          }
+          onChange={(event) => onChange({ ...value, stationLocation: event.target.value })}
           placeholder="Enter location"
         />
       </label>
@@ -538,10 +694,76 @@ export default function AdminDashboard() {
   const [showPassword, setShowPassword] = useState(false);
   const [caseFilter, setCaseFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [stationForm, setStationForm] =
-    useState<StationFormState>(emptyStationForm);
+  const [stationForm, setStationForm] = useState<StationFormState>(emptyStationForm);
 
   const adminName = loadAuthSession()?.name ?? "Admin";
+  const [caseToDelete, setCaseToDelete] = useState<string | null>(null);
+  const [isDeletingCase, setIsDeletingCase] = useState(false);
+
+  const [casePage, setCasePage] = useState(1);
+  const [userPage, setUserPage] = useState(1);
+  const [stationFormKey, setStationFormKey] = useState(0);
+
+
+  const query = searchQuery.trim().toLowerCase();
+
+  // Reset to page 1 whenever filters/search change so you don't get stuck on an empty page
+  useEffect(() => {
+    setCasePage(1);
+  }, [caseFilter, query]);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [query])
+
+  const [stationToDelete, setStationToDelete] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
+  const [isDeletingStation, setIsDeletingStation] = useState(false);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
+  const requestDeleteStation = (stationId: string) => setStationToDelete(stationId);
+  const cancelDeleteStation = () => setStationToDelete(null);
+
+  const confirmDeleteStation = async () => {
+    if (!stationToDelete) return;
+    setIsDeletingStation(true);
+    try {
+      const response = await api.delete(`${API_PATHS.admin}/police/${stationToDelete}`);
+      setStatus(response.data?.message ?? "Station deleted");
+      setStatusKind("success");
+      await loadData();
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setIsDeletingStation(false);
+      setStationToDelete(null);
+    }
+  };
+
+  const requestDeleteUser = (userId: string) => setUserToDelete(userId);
+  const cancelDeleteUser = () => setUserToDelete(null);
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    try {
+      const response = await api.delete(`${API_PATHS.admin}/users/${userToDelete}`);
+      setStatus(response.data?.message ?? "User deleted");
+      setStatusKind("success");
+      await loadData();
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setIsDeletingUser(false);
+      setUserToDelete(null);
+    }
+  };
+
+
+  // Auto-dismiss status banner after 4 seconds
+  useStatusDismiss(status, setStatus);
 
   const loadData = async () => {
     setLoading(true);
@@ -568,6 +790,59 @@ export default function AdminDashboard() {
     void loadData();
   }, []);
 
+  const activityTimeline = useMemo(() => {
+    interface TimelineEvent {
+      id: string;
+      type: "case" | "user" | "station";
+      title: string;
+      description: string;
+      date: DateValue | undefined;
+    }
+    const events: TimelineEvent[] = [];
+
+    cases.forEach((item) => {
+      events.push({
+        id: `case-${item.case_id}`,
+        type: "case",
+        title: "Missing Person Reported",
+        description: `A new case PH-${item.case_id.substring(0, 5).toUpperCase()} was created for "${item.name || "Unnamed"}".`,
+        date: item.created_at,
+      });
+    });
+
+    users.forEach((item) => {
+      events.push({
+        id: `user-${item.user_id}`,
+        type: "user",
+        title: `Citizen Registered`,
+        description: `User "${item.name || "Unnamed"}" (${item.email || "N/A"}) joined the platform.`,
+        date: item.created_at,
+      });
+    });
+
+    stations.forEach((item) => {
+      events.push({
+        id: `station-${item.station_id}`,
+        type: "station",
+        title: "Police Station Registered",
+        description: `Station "${item.station_name || "Unnamed Station"}" in "${item.location || "N/A"}" was added.`,
+        date: item.created_at,
+      });
+    });
+
+    return events.sort((a, b) => {
+      const getTimestamp = (val: DateValue | undefined) => {
+        if (!val) return 0;
+        if (typeof val === "object") {
+          const sec = val.seconds ?? val._seconds;
+          return sec ? sec * 1000 : 0;
+        }
+        return new Date(val).getTime();
+      };
+      return getTimestamp(b.date) - getTimestamp(a.date);
+    });
+  }, [cases, users, stations]);
+
   const stationNames = useMemo(() => {
     const lookup = new Map<string, string>();
     stations.forEach((station) => {
@@ -590,13 +865,11 @@ export default function AdminDashboard() {
   }, [cases]);
 
   const stats = useMemo(() => {
-    const activeStatuses = new Set(["missing", "active", "pending", "verified"]);
-    const resolvedStatuses = new Set(["found", "resolved", "confirmed"]);
-    const activeCases = cases.filter((item) =>
-      activeStatuses.has(normalizeStatus(item.status)),
+    const activeCases = cases.filter(
+      (item) => normalizeStatus(item.status) === "missing",
     ).length;
-    const resolvedCases = cases.filter((item) =>
-      resolvedStatuses.has(normalizeStatus(item.status)),
+    const resolvedCases = cases.filter(
+      (item) => normalizeStatus(item.status) === "found",
     ).length;
     const unassignedCases = cases.filter((item) => !item.police_station_id).length;
 
@@ -610,7 +883,6 @@ export default function AdminDashboard() {
     };
   }, [cases, users.length, stations.length]);
 
-  const query = searchQuery.trim().toLowerCase();
 
   const filteredCases = useMemo(() => {
     return cases.filter((item) => {
@@ -675,6 +947,7 @@ export default function AdminDashboard() {
       setStatus(response.data?.message ?? "Police station created");
       setStatusKind("success");
       setStationForm(emptyStationForm);
+      setStationFormKey((k) => k + 1);
       await loadData();
     } catch (error) {
       setStatusKind("error");
@@ -684,23 +957,45 @@ export default function AdminDashboard() {
     }
   };
 
-  const deleteCase = async (caseId: string) => {
-    const confirmed = window.confirm(
-      "Delete this missing-person case permanently?",
-    );
+  //Popup message
+  const requestDeleteCase = (caseId: string) => {
+    setCaseToDelete(caseId);
+  };
 
-    if (!confirmed) {
-      return;
-    }
+  const cancelDeleteCase = () => {
+    setCaseToDelete(null);
+  };
 
+
+  useEffect(() => {
+    if (!caseToDelete && !stationToDelete && !userToDelete) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelDeleteCase();
+        cancelDeleteStation();
+        cancelDeleteUser();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [caseToDelete, stationToDelete, userToDelete]);
+
+  const confirmDeleteCase = async () => {
+    if (!caseToDelete) return;
+    setIsDeletingCase(true);
     try {
-      const response = await api.delete(`${API_PATHS.admin}/case/${caseId}`);
+      const response = await api.delete(`${API_PATHS.admin}/case/${caseToDelete}`);
       setStatus(response.data?.message ?? "Case deleted");
       setStatusKind("success");
       await loadData();
     } catch (error) {
       setStatusKind("error");
       setStatus(getErrorMessage(error));
+    } finally {
+      setIsDeletingCase(false);
+      setCaseToDelete(null);
     }
   };
 
@@ -773,29 +1068,6 @@ export default function AdminDashboard() {
         />
       </section>
 
-      <section className="admin-feature-grid">
-        <button type="button" onClick={() => setActiveTab("cases")}>
-          <Icon name="file" />
-          <strong>Case Oversight</strong>
-          <span>Search, filter, assign context, and delete incorrect records.</span>
-        </button>
-        <button type="button" onClick={() => setActiveTab("users")}>
-          <Icon name="users" />
-          <strong>User Registry</strong>
-          <span>Audit citizens and admins returned from the users collection.</span>
-        </button>
-        <button type="button" onClick={() => setActiveTab("stations")}>
-          <Icon name="building" />
-          <strong>Police Stations</strong>
-          <span>Create station logins and review registered station accounts.</span>
-        </button>
-        <button type="button" onClick={() => setActiveTab("activity")}>
-          <Icon name="activity" />
-          <strong>Activity Summary</strong>
-          <span>See recent records and operational coverage at a glance.</span>
-        </button>
-      </section>
-
       <section className="admin-dashboard-grid">
         <div className="panel">
           <SectionHeader
@@ -813,11 +1085,10 @@ export default function AdminDashboard() {
                 <span
                   className="status-bar-fill active"
                   style={{
-                    width: `${
-                      stats.totalCases
-                        ? (stats.activeCases / stats.totalCases) * 100
-                        : 0
-                    }%`,
+                    width: `${stats.totalCases
+                      ? (stats.activeCases / stats.totalCases) * 100
+                      : 0
+                      }%`,
                   }}
                 />
               </div>
@@ -831,11 +1102,10 @@ export default function AdminDashboard() {
                 <span
                   className="status-bar-fill resolved"
                   style={{
-                    width: `${
-                      stats.totalCases
-                        ? (stats.resolvedCases / stats.totalCases) * 100
-                        : 0
-                    }%`,
+                    width: `${stats.totalCases
+                      ? (stats.resolvedCases / stats.totalCases) * 100
+                      : 0
+                      }%`,
                   }}
                 />
               </div>
@@ -849,11 +1119,10 @@ export default function AdminDashboard() {
                 <span
                   className="status-bar-fill pending"
                   style={{
-                    width: `${
-                      stats.totalCases
-                        ? (stats.unassignedCases / stats.totalCases) * 100
-                        : 0
-                    }%`,
+                    width: `${stats.totalCases
+                      ? (stats.unassignedCases / stats.totalCases) * 100
+                      : 0
+                      }%`,
                   }}
                 />
               </div>
@@ -981,10 +1250,7 @@ export default function AdminDashboard() {
             >
               <option value="all">All Status</option>
               <option value="missing">Missing</option>
-              <option value="verified">Verified</option>
-              <option value="pending">Pending</option>
               <option value="found">Found</option>
-              <option value="resolved">Resolved</option>
             </select>
           </label>
         </div>
@@ -992,7 +1258,10 @@ export default function AdminDashboard() {
         <CaseTable
           cases={filteredCases}
           stationNames={stationNames}
-          onDelete={(caseId) => void deleteCase(caseId)}
+          onDelete={(caseId) => requestDeleteCase(caseId)}
+          searchQuery={searchQuery}
+          currentPage={casePage}
+          onPageChange={setCasePage}
         />
       </section>
     </div>
@@ -1015,7 +1284,13 @@ export default function AdminDashboard() {
             </button>
           }
         />
-        <UsersTable users={filteredUsers} />
+        <UsersTable
+          users={filteredUsers}
+          searchQuery={searchQuery}
+          currentPage={userPage}
+          onPageChange={setUserPage}
+          onDelete={(userId) => { requestDeleteUser(userId) }}
+        />
       </section>
     </div>
   );
@@ -1030,6 +1305,7 @@ export default function AdminDashboard() {
             subtitle="Create a protected police login with station name, email, password, and location."
           />
           <CreateStationForm
+            key={stationFormKey}
             value={stationForm}
             passwordVisible={showPassword}
             loading={creatingStation}
@@ -1051,6 +1327,7 @@ export default function AdminDashboard() {
                 key={station.station_id}
                 station={station}
                 assignedCases={stationCaseCounts.get(station.station_id) ?? 0}
+                onDelete={requestDeleteStation}
               />
             ))}
             {filteredStations.length === 0 ? (
@@ -1064,68 +1341,65 @@ export default function AdminDashboard() {
 
   const renderActivity = () => (
     <div className="fade-in admin-modern">
-      <section className="admin-dashboard-grid">
+      <section className="admin-dashboard-grid" style={{ gridTemplateColumns: "1.3fr 0.7fr" }}>
         <div className="panel">
           <SectionHeader
-            eyebrow="Activity"
-            title="Operational Snapshot"
-            subtitle="A live summary based on the admin routes available today."
+            eyebrow="Audit Trail"
+            title="System Activity Feed"
+            subtitle="Real-time timeline of case registrations, user sign-ups, and police station creation."
           />
-          <div className="admin-timeline">
-            <article>
+          <div className="admin-timeline" style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "16px" }}>
+            {activityTimeline.slice(0, 15).map((event) => (
+              <article key={event.id} style={{ display: "flex", gap: "12px", padding: "12px", background: "rgba(255,255,255,0.6)", borderRadius: "10px", border: "1px solid var(--line)" }}>
+                <span className="admin-mini-avatar" style={{ background: event.type === "case" ? "rgba(28,143,120,0.1)" : event.type === "user" ? "rgba(59,130,246,0.1)" : "rgba(139,92,246,0.1)", color: event.type === "case" ? "var(--primary)" : event.type === "user" ? "#3b82f6" : "#8b5cf6", width: "36px", height: "36px", borderRadius: "50%", display: "grid", placeItems: "center", flexShrink: 0 }}>
+                  <Icon name={event.type === "case" ? "file" : event.type === "user" ? "users" : "building"} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "8px" }}>
+                    <strong style={{ fontSize: "14px", color: "var(--ink)" }}>{event.title}</strong>
+                    <span style={{ fontSize: "11px", color: "var(--muted)" }}>{formatDate(event.date)}</span>
+                  </div>
+                  <p style={{ fontSize: "13px", color: "var(--muted)", marginTop: "2px" }}>{event.description}</p>
+                </div>
+              </article>
+            ))}
+            {activityTimeline.length === 0 ? (
+              <EmptyState>No activity logs found on this platform.</EmptyState>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="panel" style={{ height: "fit-content" }}>
+          <SectionHeader
+            eyebrow="Platform health"
+            title="Overview Metrics"
+          />
+          <div className="admin-timeline" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <article style={{ display: "flex", gap: "10px" }}>
               <Icon name="file" />
               <div>
                 <strong>{stats.totalCases} case records loaded</strong>
-                <span className="muted">
-                  {stats.activeCases} active and {stats.resolvedCases} resolved.
+                <span className="muted" style={{ fontSize: "12px" }}>
+                  {stats.activeCases} active, {stats.resolvedCases} resolved.
                 </span>
               </div>
             </article>
-            <article>
+            <article style={{ display: "flex", gap: "10px" }}>
               <Icon name="users" />
               <div>
                 <strong>{stats.totalUsers} users in registry</strong>
-                <span className="muted">Includes citizen and admin records.</span>
+                <span className="muted" style={{ fontSize: "12px" }}>Includes citizen and admin records.</span>
               </div>
             </article>
-            <article>
+            <article style={{ display: "flex", gap: "10px" }}>
               <Icon name="building" />
               <div>
                 <strong>{stats.totalStations} police stations active</strong>
-                <span className="muted">
+                <span className="muted" style={{ fontSize: "12px" }}>
                   {stats.unassignedCases} cases without a station id.
                 </span>
               </div>
             </article>
-          </div>
-        </div>
-
-        <div className="panel">
-          <SectionHeader
-            eyebrow="Backend actions"
-            title="Supported Admin Capabilities"
-          />
-          <div className="admin-capability-list">
-            <span>
-              <Icon name="check" />
-              List all missing cases
-            </span>
-            <span>
-              <Icon name="check" />
-              List all users
-            </span>
-            <span>
-              <Icon name="check" />
-              List all police stations
-            </span>
-            <span>
-              <Icon name="check" />
-              Create police stations
-            </span>
-            <span>
-              <Icon name="check" />
-              Delete case records
-            </span>
           </div>
         </div>
       </section>
@@ -1161,7 +1435,10 @@ export default function AdminDashboard() {
     <DashboardLayout
       role="admin"
       activeTab={activeTab}
-      onTabChange={(tab) => setActiveTab(tab as AdminTab)}
+      onTabChange={(tab) => {
+        setActiveTab(tab as AdminTab);
+        setSearchQuery("");
+      }}
       userName={adminName}
       searchTerm={searchQuery}
       onSearchChange={setSearchQuery}
@@ -1181,6 +1458,84 @@ export default function AdminDashboard() {
       ) : null}
 
       {renderContent()}
+
+      {caseToDelete ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          onClick={cancelDeleteCase}
+        >
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-modal-title">Delete this case?</h3>
+            <p className="muted">
+              This will permanently withdraw Case PH-
+              {caseToDelete.substring(0, 5).toUpperCase()}. This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={cancelDeleteCase}
+                disabled={isDeletingCase}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger icon-button"
+                onClick={() => void confirmDeleteCase()}
+                disabled={isDeletingCase}
+              >
+                {isDeletingCase ? "Deleting..." : "Delete Case"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {stationToDelete ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-station-title" onClick={cancelDeleteStation}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-station-title">Delete this station?</h3>
+            <p className="muted">
+              This will permanently remove this police station account.
+              {(stationCaseCounts.get(stationToDelete) ?? 0) > 0
+                ? ` Warning: ${stationCaseCounts.get(stationToDelete)} case(s) are currently assigned to it.`
+                : ""}{" "}
+              This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="button ghost small" onClick={cancelDeleteStation} disabled={isDeletingStation}>
+                Cancel
+              </button>
+              <button type="button" className="button danger icon-button" onClick={() => void confirmDeleteStation()} disabled={isDeletingStation}>
+                {isDeletingStation ? "Deleting..." : "Delete Station"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {userToDelete ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="delete-user-title" onClick={cancelDeleteUser}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-user-title">Delete this user?</h3>
+            <p className="muted">
+              This will permanently remove this user account. This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="button ghost small" onClick={cancelDeleteUser} disabled={isDeletingUser}>
+                Cancel
+              </button>
+              <button type="button" className="button danger icon-button" onClick={() => void confirmDeleteUser()} disabled={isDeletingUser}>
+                {isDeletingUser ? "Deleting..." : "Delete User"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </DashboardLayout>
   );
 }

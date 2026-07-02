@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
 const authMiddleware = require("../middleware/authMiddleware");
-const { uploadMissing } = require("../middleware/uploadMiddleware");
+const { uploadMissing, handleUploadError } = require("../middleware/uploadMiddleware");
 
 // User registration
 router.post("/register", userController.register);
@@ -15,10 +15,11 @@ router.post(
     "/report-missing",
     authMiddleware.verifyToken,
     authMiddleware.requireRole("user"),
-    uploadMissing.single("photo"),
+    (req, res, next) => {
+        uploadMissing.single("photo")(req, res, (err) => handleUploadError(err, req, res, next));
+    },
     userController.reportMissing
 );
-
 
 // GET USER CASES
 router.get(
@@ -26,6 +27,38 @@ router.get(
     authMiddleware.verifyToken,
     authMiddleware.requireRole("user"),
     userController.getUserCases
+);
+
+// UPDATE PROFILE
+router.put(
+    "/profile",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("user"),
+    userController.updateProfile
+);
+
+// DELETE CASE
+router.delete(
+    "/case/:caseId",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("user"),
+    userController.deleteCase
+);
+
+// GET NOTIFICATIONS
+router.get(
+    "/notifications",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("user"),
+    userController.getNotifications
+);
+
+// MARK NOTIFICATION AS READ
+router.post(
+    "/notifications/:notificationId/read",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("user"),
+    userController.markNotificationAsRead
 );
 
 //GET SINGLE CASE

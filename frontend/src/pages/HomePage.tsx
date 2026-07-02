@@ -9,7 +9,6 @@ import { Link } from "react-router-dom";
 import Layout from "../components/Layout";
 
 type IconName =
-  | "activity"
   | "arrow"
   | "building"
   | "camera"
@@ -105,6 +104,8 @@ const trustPoints = [
 
 function Icon({ name }: { name: IconName }) {
   const commonProps = {
+    width: 20,
+    height: 20,
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
@@ -115,12 +116,6 @@ function Icon({ name }: { name: IconName }) {
   };
 
   switch (name) {
-    case "activity":
-      return (
-        <svg {...commonProps}>
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-        </svg>
-      );
     case "arrow":
       return (
         <svg {...commonProps}>
@@ -315,9 +310,7 @@ export default function HomePage() {
             <div className="hero-actions">
               <Link to="/user/auth" className="button primary large">
                 <span>Report Missing Person</span>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
+                <Icon name="arrow" />
               </Link>
               <Link to="/police/auth" className="button secondary large">
                 Police Portal
@@ -325,8 +318,8 @@ export default function HomePage() {
             </div>
             <div className="hero-stats">
               <div className="stat-item">
-                <span className="stat-value">99.2%</span>
-                <span className="stat-label">Match Accuracy</span>
+                <span className="stat-value">AI-Powered</span>
+                <span className="stat-label">Face Matching</span>
               </div>
               <div className="stat-divider"></div>
               <div className="stat-item">
@@ -406,7 +399,7 @@ export default function HomePage() {
           </div>
         </section>
 
-        
+
 
         <section id="security" className="home-section home-security-section">
           <div className="section-container home-security-grid">

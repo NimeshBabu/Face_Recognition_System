@@ -64,4 +64,24 @@ router.delete(
     adminController.deleteCase
 );
 
+// -------------------------------------------------
+// Delete a police station
+// -------------------------------------------------
+router.delete(
+    "/police/:stationId",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("admin"),
+    adminController.deletePolice
+);
+
+// -------------------------------------------------
+// Delete a user
+// -------------------------------------------------
+router.delete(
+    "/users/:userId",
+    authMiddleware.verifyToken,
+    authMiddleware.requireRole("admin"),
+    adminController.deleteUser
+);
+
 module.exports = router;

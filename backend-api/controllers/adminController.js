@@ -119,7 +119,8 @@ exports.getAllCases = async (req, res) => {
                 name: data.basic_info?.name,
                 age: data.basic_info?.age,
                 status: data.system_data?.status,
-                police_station_id: data.case_details?.police_station_id
+                police_station_id: data.case_details?.police_station_id,
+                created_at: data.system_data?.created_at || data.basic_info?.missing_date
             };
         });
         res.json({ cases });
@@ -211,6 +212,60 @@ exports.deleteCase = async (req, res) => {
 
         await caseRef.delete();
         res.json({ message: "Case deleted successfully", case_id: caseId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
+
+// -------------------------------------------------
+// Delete Police Station
+// -------------------------------------------------
+exports.deletePolice = async (req, res) => {
+    try {
+        const { stationId } = req.params;
+        const stationRef = db.collection("police_stations").doc(stationId);
+        const doc = await stationRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "Police station not found" });
+
+        // Optional safety check: warn/prevent deletion if cases are still assigned
+        const assignedCasesSnapshot = await db
+            .collection("missing_cases")
+            .where("case_details.police_station_id", "==", stationId)
+            .limit(1)
+            .get();
+
+        if (!assignedCasesSnapshot.empty) {
+            return res.status(409).json({
+                error: "Cannot delete station with cases still assigned to it. Reassign or resolve those cases first."
+            });
+        }
+
+        await stationRef.delete();
+        res.json({ message: "Police station deleted successfully", station_id: stationId });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// -------------------------------------------------
+// Delete User
+// -------------------------------------------------
+exports.deleteUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const userRef = db.collection("users").doc(userId);
+        const doc = await userRef.get();
+        if (!doc.exists) return res.status(404).json({ error: "User not found" });
+
+        const userData = doc.data();
+        if (userData.role === "admin") {
+            return res.status(403).json({ error: "Admin accounts cannot be deleted" });
+        }
+
+        await userRef.delete();
+        res.json({ message: "User deleted successfully", user_id: userId });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -26,6 +26,9 @@ module.exports = {
 
             return response.data.embedding;
         } catch (err) {
+            if (err.response && err.response.data && err.response.data.error) {
+                throw new Error(err.response.data.error);
+            }
             console.error("AI Service Error:", err.message);
             throw err;
         }
@@ -41,6 +44,9 @@ module.exports = {
 
             return response.data.matches;
         } catch (err) {
+            if (err.response && err.response.data && err.response.data.error) {
+                throw new Error(err.response.data.error);
+            }
             console.error("AI Service Match Error:", err.message);
             throw err;
         }

@@ -1,9 +1,9 @@
-import { useMemo, useState, useEffect } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { FormEvent } from "react";
 import { AxiosError } from "axios";
 import { API_PATHS, api } from "../lib/api";
-import { saveAuthSession, type UserRole } from "../lib/authStorage";
+import { loadAuthSession, saveAuthSession, type UserRole } from "../lib/authStorage";
 import Layout from "../components/Layout";
 
 interface AuthPageProps {
@@ -16,28 +16,26 @@ type AuthFieldErrors = Partial<Record<AuthField, string>>;
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
-    return String(error.response?.data?.error ?? error.message);
+    // Map common backend messages to user-friendly text
+    const serverMsg = String(error.response?.data?.error ?? "");
+    if (serverMsg.toLowerCase().includes("invalid token")) {
+      return "Your session has expired. Please sign in again.";
+    }
+    if (serverMsg.toLowerCase().includes("not found")) {
+      return "No account found with this email.";
+    }
+    if (serverMsg.toLowerCase().includes("incorrect password")) {
+      return "Incorrect password. Please try again.";
+    }
+    if (serverMsg) return serverMsg;
+    return error.message;
   }
-  return "Request failed";
+  return "Something went wrong. Please try again.";
 }
 
 export default function AuthPage({ role }: AuthPageProps) {
   const [searchParams] = useSearchParams();
-
-  const initialMode =
-    role === "user" && searchParams.get("mode") === "register"
-      ? "register"
-      : "login";
-
-  const [mode, setMode] = useState<Mode>(initialMode); 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [setupKey, setSetupKey] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
-  const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const labels = useMemo(() => {
     if (role === "user") {
@@ -60,6 +58,29 @@ export default function AuthPage({ role }: AuthPageProps) {
       dashboardPath: "/admin/dashboard" as const,
     };
   }, [role]);
+
+  // ── If the user is already logged in with the correct role, redirect them ──
+  useEffect(() => {
+    const session = loadAuthSession();
+    if (session?.token && session.role === role) {
+      navigate(labels.dashboardPath, { replace: true });
+    }
+  }, [role, labels.dashboardPath, navigate]);
+
+  const initialMode =
+    role === "user" && searchParams.get("mode") === "register"
+      ? "register"
+      : "login";
+
+  const [mode, setMode] = useState<Mode>(initialMode);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [setupKey, setSetupKey] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const validate = (): AuthFieldErrors => {
     const errors: AuthFieldErrors = {};
@@ -111,7 +132,7 @@ export default function AuthPage({ role }: AuthPageProps) {
           email: email.trim(),
           password,
         });
-        setStatus(registerRes.data?.message ?? "Registration complete");
+        setStatus(registerRes.data?.message ?? "Registration complete — please sign in.");
         setMode("login");
         setLoading(false);
         return;
@@ -127,7 +148,7 @@ export default function AuthPage({ role }: AuthPageProps) {
             },
           },
         );
-        setStatus(setupRes.data?.message ?? "Admin setup completed");
+        setStatus(setupRes.data?.message ?? "Admin setup completed — please sign in.");
         setMode("login");
         setLoading(false);
         return;
@@ -137,9 +158,6 @@ export default function AuthPage({ role }: AuthPageProps) {
         email: email.trim(),
         password,
       });
-
-
-      console.log("Login Response:", loginRes.data);
 
       const token = loginRes.data?.token as string;
       const id =
@@ -156,7 +174,8 @@ export default function AuthPage({ role }: AuthPageProps) {
         email: loginRes.data?.email,
       });
 
-      window.location.href = labels.dashboardPath;
+      // Use navigate for SPA navigation instead of full page reload
+      navigate(labels.dashboardPath, { replace: true });
     } catch (error) {
       setStatus(getErrorMessage(error));
     } finally {

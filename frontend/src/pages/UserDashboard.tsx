@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { AxiosError } from "axios";
 import { API_PATHS, api } from "../lib/api";
-import { loadAuthSession } from "../lib/authStorage";
+import { loadAuthSession, saveAuthSession } from "../lib/authStorage";
+import { useStatusDismiss } from "../lib/useStatusDismiss";
 import DashboardLayout from "../components/DashboardLayout";
 import ProgressiveReportForm from "../components/ProgressiveReportForm";
 
@@ -11,6 +12,9 @@ interface CaseItem {
   status?: string;
   missing_date?: string;
   photo_url?: string | null;
+  age?: number | string;
+  gender?: string;
+  owner_station_name?: string;
 }
 
 interface PoliceStationOption {
@@ -62,7 +66,6 @@ interface ComplainantDetails {
 interface CaseDetails {
   last_seen_location?: string;
   suspected_kidnap?: boolean;
-  emergency_level?: string;
   police_station_id?: string;
 }
 
@@ -184,6 +187,27 @@ function EyeIcon({ hidden }: { hidden: boolean }) {
     </svg>
   );
 }
+function TrashIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v5" />
+      <path d="M14 11v5" />
+    </svg>
+  );
+}
 
 export default function UserDashboard() {
   const [cases, setCases] = useState<CaseItem[]>([]);
@@ -193,14 +217,32 @@ export default function UserDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
   const [userName, setUserName] = useState("User");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [profilePassword, setProfilePassword] = useState("");
-  const [showProfilePassword, setShowProfilePassword] = useState(false);
-  const [profileStatus, setProfileStatus] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [caseDetail, setCaseDetail] = useState<UserCaseDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailStatus, setDetailStatus] = useState("");
+  const [caseToDelete, setCaseToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [profileName, setProfileName] = useState("User");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [profilePassword, setProfilePassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showProfilePassword, setShowProfilePassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [profileStatus, setProfileStatus] = useState("");
+  const [profileStatusKind, setProfileStatusKind] = useState<"success" | "error">("success");
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    email?: string;
+    password?: string;
+    confirmPassword?: string;
+  }>({});
+
+
+  // Auto-dismiss status banners after 4 seconds
+  useStatusDismiss(status, setStatus);
+  useStatusDismiss(profileStatus, setProfileStatus);
+  useStatusDismiss(detailStatus, setDetailStatus);
 
   useEffect(() => {
     const session = loadAuthSession();
@@ -209,9 +251,11 @@ export default function UserDashboard() {
 
     if (session?.name) {
       setUserName(session.name);
+      setProfileName(session.name);
       localStorage.setItem("userName", session.name);
     } else if (storedName) {
       setUserName(storedName);
+      setProfileName(storedName);
     }
 
     if (session?.email) {
@@ -221,6 +265,17 @@ export default function UserDashboard() {
       setProfileEmail(storedEmail);
     }
   }, []);
+
+  useEffect(() => {
+    if (caseDetail) {
+      setTimeout(() => {
+        const element = document.querySelector(".case-detail-panel");
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 150);
+    }
+  }, [caseDetail]);
 
   const loadCases = async () => {
     try {
@@ -287,13 +342,11 @@ export default function UserDashboard() {
   }, [cases, searchQuery]);
 
   const stats = useMemo(() => {
-    const openStatuses = new Set(["missing", "active", "pending"]);
-    const resolvedStatuses = new Set(["found", "resolved", "confirmed"]);
     const openCases = cases.filter((item) =>
-      openStatuses.has(statusTone(item.status)),
+      (item.status ?? "").toLowerCase() === "missing",
     ).length;
     const resolvedCases = cases.filter((item) =>
-      resolvedStatuses.has(statusTone(item.status)),
+      (item.status ?? "").toLowerCase() === "found",
     ).length;
     const latestCase = [...cases].sort(
       (a, b) =>
@@ -331,16 +384,117 @@ export default function UserDashboard() {
     void loadCases();
   };
 
-  const submitProfile = (event: FormEvent<HTMLFormElement>) => {
+  const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    localStorage.setItem("userName", userName.trim() || "User");
-    localStorage.setItem("userEmail", profileEmail.trim());
-    setProfilePassword("");
-    setProfileStatus(
-      profilePassword
-        ? "Profile saved locally. Password changes need a backend endpoint."
-        : "Profile saved locally.",
-    );
+    setProfileStatus("");
+
+    const nextName = profileName.trim();
+    const nextEmail = profileEmail.trim();
+    const errors: typeof fieldErrors = {};
+
+    if (!nextName) {
+      errors.name = "Full name is required.";
+    }
+
+    if (!nextEmail) {
+      errors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      errors.email = "Please enter a valid email address.";
+    }
+
+    if (profilePassword) {
+      if (profilePassword.length < 8) {
+        errors.password = "New password must be at least 8 characters.";
+      }
+      if (confirmPassword !== profilePassword) {
+        errors.confirmPassword = "Passwords do not match.";
+      }
+    } else if (confirmPassword) {
+      errors.password = "Enter a new password first.";
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    try {
+      const payload: any = {
+        name: nextName,
+        email: nextEmail,
+      };
+      if (profilePassword) {
+        payload.password = profilePassword;
+      }
+      await api.put(`${API_PATHS.user}/profile`, payload);
+
+      const session = loadAuthSession();
+      if (session) {
+        session.name = payload.name;
+        session.email = payload.email;
+        saveAuthSession(session);
+      }
+
+      localStorage.setItem("userName", payload.name);
+      localStorage.setItem("userEmail", payload.email);
+      setUserName(payload.name);
+      setProfilePassword("");
+      setConfirmPassword("");
+      setProfileStatusKind("success");
+      setProfileStatus("Profile updated successfully!");
+    } catch (error) {
+      setProfileStatusKind("error");
+      setProfileStatus(getErrorMessage(error));
+    }
+  };
+
+  const requestDeleteCase = (caseId: string) => {
+    setCaseToDelete(caseId);
+  };
+
+  const cancelDeleteCase = () => {
+    setCaseToDelete(null);
+  };
+
+  useEffect(() => {
+    if (!caseToDelete) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        cancelDeleteCase();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [caseToDelete]);
+  const confirmDeleteCase = async () => {
+    if (!caseToDelete) return;
+    const caseId = caseToDelete;
+    const isOpenInDetail = selectedCaseId === caseId;
+
+    setIsDeleting(true);
+    try {
+      if (isOpenInDetail) setDetailLoading(true);
+      await api.delete(`${API_PATHS.user}/case/${caseId}`);
+      if (isOpenInDetail) {
+        setSelectedCaseId(null);
+        setCaseDetail(null);
+        setDetailStatus("");
+      }
+      void loadCases();
+    } catch (error) {
+      if (isOpenInDetail) {
+        setDetailStatus(getErrorMessage(error));
+      } else {
+        setStatus(getErrorMessage(error));
+      }
+    } finally {
+      if (isOpenInDetail) setDetailLoading(false);
+      setIsDeleting(false);
+      setCaseToDelete(null);
+    }
   };
 
   const selectedStationId = caseDetail?.case_details?.police_station_id;
@@ -393,6 +547,23 @@ export default function UserDashboard() {
                   className="modern-btn secondary"
                   onClick={() => void loadCases()}
                 >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 2v6h-6" />
+                    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                    <path d="M3 22v-6h6" />
+                    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                  </svg>
                   Refresh Cases
                 </button>
               </div>
@@ -484,7 +655,7 @@ export default function UserDashboard() {
 
             {status ? <p className="status-text">{status}</p> : null}
 
-            <div className="case-grid-modern">
+            <div className="police-case-grid">
               {filteredCases.length === 0 ? (
                 <div className="empty-state empty-panel">
                   {cases.length === 0
@@ -494,37 +665,57 @@ export default function UserDashboard() {
               ) : null}
 
               {filteredCases.map((item) => (
-                <article key={item.case_id} className="case-tile">
+                <article key={item.case_id} className="police-case-card">
                   {item.photo_url ? (
                     <img
                       src={item.photo_url}
                       alt={`${item.name ?? "Missing person"} case photo`}
-                      className="case-tile-photo"
+                      className="police-case-photo"
                     />
                   ) : (
-                    <div className="case-tile-photo case-tile-placeholder">
-                      No Photo
-                    </div>
+                    <div className="police-case-photo police-case-placeholder">No Photo</div>
                   )}
 
-                  <div className="case-tile-body">
+                  <div className="police-case-body">
                     <div>
                       <h3>{item.name ?? "Unnamed"}</h3>
-                      <p className="muted">Case {item.case_id.slice(0, 10)}</p>
+                      <p className="muted">Case PH-{item.case_id.substring(0, 5).toUpperCase()}</p>
+                      <p style={{ fontSize: "12px" }}>
+                        <strong>Assigned to:</strong> {item.owner_station_name || "Unknown Station"}
+                      </p>
                     </div>
-                    <div className="case-meta-row">
+                    <div className="police-case-meta">
+                      <span>Age {item.age ?? "N/A"}</span>
+                      <span>{item.gender ?? "N/A"}</span>
+                      <span>{formatDate(item.missing_date)}</span>
                       <span className={`status-badge ${statusTone(item.status)}`}>
                         {item.status ?? "unknown"}
                       </span>
-                      <span>{formatDate(item.missing_date)}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="modern-btn primary"
-                      onClick={() => void loadCaseDetail(item.case_id)}
-                    >
-                      View Details
-                    </button>
+                  </div>
+
+                  <div className="police-case-actions">
+                    <div className="police-case-buttons">
+                      <button
+                        type="button"
+                        className="button ghost small"
+                        onClick={() => void loadCaseDetail(item.case_id)}
+                      >
+                        View Details
+                      </button>
+                      <button
+                        type="button"
+                        className="danger icon-button"
+                        aria-label="Delete case"
+                        title="Delete case"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          requestDeleteCase(item.case_id);
+                        }}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -536,19 +727,31 @@ export default function UserDashboard() {
               <div className="panel-header">
                 <div>
                   <p className="eyebrow">Case detail</p>
-                  <h2>Case {selectedCaseId.slice(0, 10)}</h2>
+                  <h2>Case PH-{selectedCaseId.substring(0, 5).toUpperCase()}</h2>
                 </div>
-                <button
-                  type="button"
-                  className="button ghost small"
-                  onClick={() => {
-                    setSelectedCaseId(null);
-                    setCaseDetail(null);
-                    setDetailStatus("");
-                  }}
-                >
-                  Close
-                </button>
+                <div className="onlydelete" style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "nowrap" }}>
+                  <button
+                    type="button"
+                    className="button danger small icon-button"
+                    aria-label="Withdraw case"
+                    title="Withdraw case"
+                    onClick={() => requestDeleteCase(selectedCaseId)}
+                  >
+                    <TrashIcon />
+                    Withdraw Case
+                  </button>
+                  <button
+                    type="button"
+                    className="button ghost small"
+                    onClick={() => {
+                      setSelectedCaseId(null);
+                      setCaseDetail(null);
+                      setDetailStatus("");
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
               {detailLoading ? (
@@ -661,10 +864,6 @@ export default function UserDashboard() {
                         value: caseDetail.case_details?.suspected_kidnap,
                       },
                       {
-                        label: "Emergency Level",
-                        value: caseDetail.case_details?.emergency_level,
-                      },
-                      {
                         label: "Police Station",
                         value:
                           selectedStation?.station_name ??
@@ -710,11 +909,15 @@ export default function UserDashboard() {
             </div>
           </div>
 
+          {profileStatus ? (
+            <div className={`form-status ${profileStatusKind}`} style={{ marginBottom: "16px" }}>{profileStatus}</div>
+          ) : null}
+
           <section className="panel profile-panel">
-            <form className="wizard-form" onSubmit={submitProfile}>
+            <form className="wizard-form" onSubmit={submitProfile} noValidate>
               <div className="profile-preview">
                 <span className="hero-avatar compact-avatar" aria-hidden="true">
-                  {userName
+                  {profileName
                     .split(/\s+/)
                     .map((part) => part[0])
                     .join("")
@@ -722,7 +925,7 @@ export default function UserDashboard() {
                     .slice(0, 2) || "U"}
                 </span>
                 <div className="profile-preview-info">
-                  <strong>{userName || "User"}</strong>
+                  <strong>{profileName || "User"}</strong>
                   <span>{profileEmail || "Email not added"}</span>
                 </div>
               </div>
@@ -732,12 +935,16 @@ export default function UserDashboard() {
                   <span>Full Name</span>
                   <input
                     type="text"
-                    value={userName}
+                    value={profileName}
                     onChange={(event) => {
-                      setUserName(event.target.value);
-                      setProfileStatus("");
+                      setProfileName(event.target.value);
+                      setFieldErrors((current) => ({ ...current, name: undefined }));
                     }}
+                    aria-invalid={Boolean(fieldErrors.name)}
                   />
+                  {fieldErrors.name ? (
+                    <span className="field-error">{fieldErrors.name}</span>
+                  ) : null}
                 </label>
 
                 <label className="form-group">
@@ -747,10 +954,14 @@ export default function UserDashboard() {
                     value={profileEmail}
                     onChange={(event) => {
                       setProfileEmail(event.target.value);
-                      setProfileStatus("");
+                      setFieldErrors((current) => ({ ...current, email: undefined }));
                     }}
                     placeholder="name@example.com"
+                    aria-invalid={Boolean(fieldErrors.email)}
                   />
+                  {fieldErrors.email ? (
+                    <span className="field-error">{fieldErrors.email}</span>
+                  ) : null}
                 </label>
 
                 <label className="form-group full-span">
@@ -761,27 +972,52 @@ export default function UserDashboard() {
                       value={profilePassword}
                       onChange={(event) => {
                         setProfilePassword(event.target.value);
-                        setProfileStatus("");
+                        setFieldErrors((current) => ({ ...current, password: undefined }));
                       }}
                       placeholder="Enter a new password"
+                      aria-invalid={Boolean(fieldErrors.password)}
                     />
                     <button
                       type="button"
                       className="password-toggle"
                       onClick={() => setShowProfilePassword((current) => !current)}
-                      aria-label={
-                        showProfilePassword ? "Hide password" : "Show password"
-                      }
+                      aria-label={showProfilePassword ? "Hide password" : "Show password"}
                     >
                       <EyeIcon hidden={!showProfilePassword} />
                     </button>
                   </div>
+                  {fieldErrors.password ? (
+                    <span className="field-error">{fieldErrors.password}</span>
+                  ) : null}
+                </label>
+
+                <label className="form-group full-span">
+                  <span>Confirm New Password</span>
+                  <div className="password-wrapper">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(event) => {
+                        setConfirmPassword(event.target.value);
+                        setFieldErrors((current) => ({ ...current, confirmPassword: undefined }));
+                      }}
+                      placeholder="Re-enter the new password"
+                      aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowConfirmPassword((current) => !current)}
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      <EyeIcon hidden={!showConfirmPassword} />
+                    </button>
+                  </div>
+                  {fieldErrors.confirmPassword ? (
+                    <span className="field-error">{fieldErrors.confirmPassword}</span>
+                  ) : null}
                 </label>
               </div>
-
-              {profileStatus ? (
-                <div className="form-status success">{profileStatus}</div>
-              ) : null}
 
               <div className="wizard-actions">
                 <span />
@@ -791,6 +1027,44 @@ export default function UserDashboard() {
               </div>
             </form>
           </section>
+        </div>
+      ) : null}
+
+
+
+      {caseToDelete ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          onClick={cancelDeleteCase}
+        >
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3 id="delete-modal-title">Delete this case?</h3>
+            <p className="muted">
+              This will permanently withdraw Case PH-
+              {caseToDelete.substring(0, 5).toUpperCase()}. This action cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="button ghost small"
+                onClick={cancelDeleteCase}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger icon-button"
+                onClick={() => void confirmDeleteCase()}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting..." : "Delete Case"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </DashboardLayout>

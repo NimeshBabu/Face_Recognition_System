@@ -178,7 +178,7 @@ export default function Sidebar({
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand" aria-label="Pahichan home">
           <span className="brand-mark">
-            <img src="/glass.svg" alt="Pahichan Logo" className="logo-icon" />
+            <img src="/glass.svg" alt="Pahichan Logo"/>
           </span>
           <span>Pahichan</span>
         </Link>

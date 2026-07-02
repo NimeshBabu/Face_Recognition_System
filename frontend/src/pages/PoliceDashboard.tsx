@@ -9,7 +9,8 @@ import {
 } from "react";
 import { AxiosError } from "axios";
 import { API_PATHS, api } from "../lib/api";
-import { loadAuthSession } from "../lib/authStorage";
+import { loadAuthSession, saveAuthSession } from "../lib/authStorage";
+import { useStatusDismiss } from "../lib/useStatusDismiss";
 import DashboardLayout from "../components/DashboardLayout";
 
 interface PoliceCase {
@@ -32,6 +33,8 @@ interface MatchLog {
   gender?: string;
   photo_url?: string | null;
   missing_date?: string;
+  owner_station_id?: string | null;
+  owner_station_name?: string;
 }
 
 interface BasicInfo {
@@ -77,7 +80,6 @@ interface ComplainantDetails {
 interface CaseDetails {
   last_seen_location?: string;
   suspected_kidnap?: boolean;
-  emergency_level?: string;
   police_station_id?: string;
 }
 
@@ -204,10 +206,10 @@ function Icon({ name }: { name: IconName }) {
     case "refresh":
       return (
         <svg {...commonProps}>
-          <path d="M21 12a9 9 0 0 1-15.2 6.5L3 16" />
-          <path d="M3 16v5h5" />
-          <path d="M3 12A9 9 0 0 1 18.2 5.5L21 8" />
-          <path d="M21 3v5h-5" />
+          <path d="M21 2v6h-6" />
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M3 22v-6h6" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
         </svg>
       );
     case "scan":
@@ -349,10 +351,16 @@ function EmptyState({ children }: { children: ReactNode }) {
 function CaseCard({
   item,
   onView,
+  onMarkFound,
+  updatingCaseId,
 }: {
   item: PoliceCase;
   onView: (caseId: string) => void;
+  onMarkFound: (caseId: string) => void;
+  updatingCaseId: string | null;
 }) {
+  const isActive = normalizeStatus(item.status) === "missing";
+
   return (
     <article className="police-case-card">
       {item.photo_url ? (
@@ -368,15 +376,19 @@ function CaseCard({
       <div className="police-case-body">
         <div>
           <h3>{item.name ?? "Unnamed"}</h3>
-          <p className="muted">Case {item.case_id.slice(0, 10)}</p>
+          <p className="muted">Case PH-{item.case_id.substring(0, 5).toUpperCase()}</p>
         </div>
         <div className="police-case-meta">
           <span>Age {item.age ?? "N/A"}</span>
           <span>{item.gender ?? "N/A"}</span>
           <span>{formatDate(item.missing_date)}</span>
-        </div>
-        <div className="police-case-actions">
           <StatusBadge status={item.status} />
+        </div>
+
+      </div>
+      <div className="police-case-actions">
+
+        <div className="police-case-buttons">
           <button
             type="button"
             className="button ghost small"
@@ -384,6 +396,19 @@ function CaseCard({
           >
             View Details
           </button>
+          {isActive ? (
+            <button
+              type="button"
+              className="button primary small"
+              disabled={updatingCaseId === item.case_id}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMarkFound(item.case_id);
+              }}
+            >
+              {updatingCaseId === item.case_id ? "Updating..." : "Mark as Found"}
+            </button>
+          ) : null}
         </div>
       </div>
     </article>
@@ -418,22 +443,39 @@ function CaseDetailPanel({
   loading,
   error,
   onClose,
+  currentStationId,
+  updatingStatus,
+  onUpdateStatus,
+  matchContext,
 }: {
   caseId: string | null;
   detail: PoliceCaseDetail | null;
   loading: boolean;
   error: string;
   onClose: () => void;
+  currentStationId: string | null;
+  updatingStatus: boolean;
+  onUpdateStatus: (caseId: string, status: string) => void;
+  matchContext?: {
+    match: MatchLog;
+    updating: boolean;
+    notifying: boolean;
+    onConfirm: (logId: string) => void;
+    onNotifyOwner: (caseId: string, logId: string) => void;
+  } | null;
 }) {
   if (!caseId) {
     return null;
   }
 
+  const isMatchOwner =
+    matchContext &&
+    (!matchContext.match.owner_station_id || matchContext.match.owner_station_id === currentStationId);
   return (
     <section className="panel police-detail-panel">
       <SectionHeader
         eyebrow="Case detail"
-        title={`Case ${caseId.slice(0, 10)}`}
+        title={`Case PH-${caseId.substring(0, 5).toUpperCase()}`}
         action={
           <button type="button" className="button ghost small" onClick={onClose}>
             Close
@@ -450,207 +492,312 @@ function CaseDetailPanel({
 
       {error ? <p className="status-text">{error}</p> : null}
 
+      {/* AI match action block — only shown when opened from a match result */}
+      {matchContext && matchContext.match.status === "pending" ? (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "12px",
+            marginBottom: "20px",
+            padding: "16px",
+            background: "rgba(59, 130, 246, 0.06)",
+            borderRadius: "12px",
+            border: "1px dashed rgba(59, 130, 246, 0.25)",
+          }}
+        >
+          <span style={{ fontWeight: 800, color: "var(--ink)", marginRight: "8px" }}>
+            AI Match ({(Number(matchContext.match.similarity_score) * 100).toFixed(1)}%):
+          </span>
+
+          {isMatchOwner ? (
+            <button
+              type="button"
+              className="button primary small"
+              disabled={matchContext.updating}
+              onClick={() => matchContext.onConfirm(matchContext.match.log_id)}
+            >
+              {matchContext.updating ? "Updating..." : "Confirm Match"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="modern-btn primary small"
+              style={{ padding: "6px 14px", fontSize: "13px", background: "var(--accent-tint, #3b82f6)", color: "white" }}
+              disabled={matchContext.notifying}
+              onClick={() => matchContext.onNotifyOwner(matchContext.match.case_id, matchContext.match.log_id)}
+            >
+              {/* <Icon name="scan" /> */}
+              {matchContext.notifying ? "Notifying..." : "Notify Owner Station"}
+            </button>
+          )}
+        </div>
+      ) : null}
+
+
+      {!matchContext && detail && detail.case_details?.police_station_id === currentStationId &&
+        normalizeStatus(detail.system_data?.status) === "missing" ? (
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginBottom: "20px", padding: "16px", background: "rgba(28, 143, 120, 0.06)", borderRadius: "12px", border: "1px dashed rgba(28, 143, 120, 0.25)" }}>
+          <span style={{ fontWeight: 800, color: "var(--ink)", marginRight: "8px" }}>Update Case Status:</span>
+          <button
+            type="button"
+            className="modern-btn primary small"
+            style={{ padding: "6px 14px", fontSize: "13px" }}
+            disabled={updatingStatus}
+            onClick={() => onUpdateStatus(caseId, "found")}
+          >
+            {updatingStatus ? "Updating..." : "Mark as Found"}
+          </button>
+        </div>
+      ) : null}
+
       {detail ? (
-        <div className="detail-grid">
-          <DetailList
-            title="Basic Info"
-            rows={[
-              { label: "Name", value: detail.basic_info?.name },
-              { label: "Age", value: detail.basic_info?.age },
-              { label: "Gender", value: detail.basic_info?.gender },
-              { label: "Category", value: detail.basic_info?.category },
-              {
-                label: "Missing Date",
-                value: formatDate(detail.basic_info?.missing_date),
-              },
-              { label: "Missing Time", value: detail.basic_info?.missing_time },
-              { label: "Lost Address", value: detail.basic_info?.lost_address },
-              {
-                label: "Permanent Address",
-                value: detail.basic_info?.permanent_address,
-              },
-            ]}
-          />
-          <DetailList
-            title="Appearance"
-            rows={[
-              { label: "Height", value: detail.physical_details?.height },
-              { label: "Weight", value: detail.physical_details?.weight },
-              { label: "Complexion", value: detail.physical_details?.complexion },
-              { label: "Hair Color", value: detail.physical_details?.hair_color },
-              { label: "Eye Color", value: detail.physical_details?.eye_color },
-              {
-                label: "Identifying Marks",
-                value: detail.physical_details?.identifying_marks,
-              },
-            ]}
-          />
-          <DetailList
-            title="Clothing"
-            rows={[
-              { label: "Clothes", value: detail.clothing_details?.clothes },
-              { label: "Footwear", value: detail.clothing_details?.footwear },
-              {
-                label: "Accessories",
-                value: detail.clothing_details?.accessories,
-              },
-            ]}
-          />
-          <DetailList
-            title="Complainant"
-            rows={[
-              { label: "Name", value: detail.complainant_details?.name },
-              { label: "Phone", value: detail.complainant_details?.phone },
-              { label: "Email", value: detail.complainant_details?.email },
-              { label: "Address", value: detail.complainant_details?.address },
-            ]}
-          />
-          <DetailList
-            title="Family"
-            rows={[
-              { label: "Mother", value: detail.family_details?.mother_name },
-              { label: "Father", value: detail.family_details?.father_name },
-              { label: "Guardian", value: detail.family_details?.guardian_name },
-              {
-                label: "Relation",
-                value: detail.family_details?.relation_with_complainant,
-              },
-            ]}
-          />
-          <DetailList
-            title="Case"
-            rows={[
-              {
-                label: "Last Seen",
-                value: detail.case_details?.last_seen_location,
-              },
-              {
-                label: "Suspected Kidnap",
-                value: detail.case_details?.suspected_kidnap,
-              },
-              {
-                label: "Emergency Level",
-                value: detail.case_details?.emergency_level,
-              },
-              { label: "Status", value: detail.system_data?.status },
-            ]}
-          />
+        <div>
+          <div className="detail-grid">
+            <DetailList
+              title="Basic Info"
+              rows={[
+                { label: "Name", value: detail.basic_info?.name },
+                { label: "Age", value: detail.basic_info?.age },
+                { label: "Gender", value: detail.basic_info?.gender },
+                { label: "Category", value: detail.basic_info?.category },
+                {
+                  label: "Missing Date",
+                  value: formatDate(detail.basic_info?.missing_date),
+                },
+                { label: "Missing Time", value: detail.basic_info?.missing_time },
+                { label: "Lost Address", value: detail.basic_info?.lost_address },
+                {
+                  label: "Permanent Address",
+                  value: detail.basic_info?.permanent_address,
+                },
+              ]}
+            />
+            <DetailList
+              title="Appearance"
+              rows={[
+                { label: "Height", value: detail.physical_details?.height },
+                { label: "Weight", value: detail.physical_details?.weight },
+                { label: "Complexion", value: detail.physical_details?.complexion },
+                { label: "Hair Color", value: detail.physical_details?.hair_color },
+                { label: "Eye Color", value: detail.physical_details?.eye_color },
+                {
+                  label: "Identifying Marks",
+                  value: detail.physical_details?.identifying_marks,
+                },
+              ]}
+            />
+            <DetailList
+              title="Clothing"
+              rows={[
+                { label: "Clothes", value: detail.clothing_details?.clothes },
+                { label: "Footwear", value: detail.clothing_details?.footwear },
+                {
+                  label: "Accessories",
+                  value: detail.clothing_details?.accessories,
+                },
+              ]}
+            />
+            <DetailList
+              title="Complainant"
+              rows={[
+                { label: "Name", value: detail.complainant_details?.name },
+                { label: "Phone", value: detail.complainant_details?.phone },
+                { label: "Email", value: detail.complainant_details?.email },
+                { label: "Address", value: detail.complainant_details?.address },
+              ]}
+            />
+            <DetailList
+              title="Family"
+              rows={[
+                { label: "Mother", value: detail.family_details?.mother_name },
+                { label: "Father", value: detail.family_details?.father_name },
+                { label: "Guardian", value: detail.family_details?.guardian_name },
+                {
+                  label: "Relation",
+                  value: detail.family_details?.relation_with_complainant,
+                },
+              ]}
+            />
+            <DetailList
+              title="Case"
+              rows={[
+                {
+                  label: "Last Seen",
+                  value: detail.case_details?.last_seen_location,
+                },
+                {
+                  label: "Suspected Kidnap",
+                  value: detail.case_details?.suspected_kidnap,
+                },
+                { label: "Status", value: detail.system_data?.status },
+              ]}
+            />
+          </div>
         </div>
       ) : null}
     </section>
   );
 }
 
+
+
+function SimilarityMeter({ score }: { score: number }) {
+  const percent = Math.max(0, Math.min(100, score));
+
+  const tone =
+    percent >= 85 ? "high" : percent >= 60 ? "medium" : "low";
+
+  const label =
+    tone === "high" ? "Strong match" : tone === "medium" ? "Possible match" : "Weak match";
+
+  return (
+    <div className={`similarity-meter ${tone}`} title={`${percent.toFixed(1)}% similarity`}>
+      <div className="similarity-meter-header">
+        <span>Similarity</span>
+        <strong>{percent.toFixed(1)}%</strong>
+      </div>
+      <div className="similarity-meter-track">
+        <div
+          className="similarity-meter-fill"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <span className="similarity-meter-label">{label}</span>
+    </div>
+  );
+}
+
+
 function MatchResultCard({
   match,
-  updating,
-  onDecision,
+  onViewDetail,
+  onNotifyOwner,
+  currentStationId,
+  notifyingLogId,
 }: {
   match: MatchLog;
-  updating: boolean;
-  onDecision: (logId: string, action: "confirm-match" | "reject-match") => void;
+  onNotifyOwner: (caseId: string, logId: string) => void;
+  onViewDetail: (match: MatchLog) => void;
+  currentStationId: string | null;
+  notifyingLogId: string | null;
 }) {
   const scorePercent = Math.max(
     0,
     Math.min(100, Number(match.similarity_score) * 100),
   );
 
+  const isOwner = !match.owner_station_id || match.owner_station_id === currentStationId;
+
   return (
-    <article className="police-match-card">
-      <div className="match-card-top">
-        {match.photo_url ? (
-          <img
-            src={match.photo_url}
-            alt={match.name ?? "Matched person"}
-            className="match-photo"
-          />
-        ) : (
-          <div className="match-photo placeholder">
-            <Icon name="camera" />
-          </div>
-        )}
-
-        <div className="match-person-info">
-          <h3>{match.name ?? "Unknown Person"}</h3>
-
-          <div className="match-meta">
-            <span>Age {match.age ?? "N/A"}</span>
-            <span>{match.gender ?? "N/A"}</span>
-          </div>
-
-          <p className="muted">
-            Missing since {formatDate(match.missing_date)}
-          </p>
-
-          <p className="muted mono">
-            Case: {match.case_id.slice(0, 10)}
-          </p>
-        </div>
-      </div>
-
-      <div className="police-match-score">
-        <div
-          className="score-ring"
-          style={{ "--score": `${scorePercent}%` } as CSSProperties}
-        >
-          <span>{scorePercent.toFixed(1)}%</span>
-        </div>
-        {match.status === "pending" ? (
-          <StatusBadge status="pending" />
-        ) : null}
-      </div>
-
-
-      {match.status === "pending" ? (
-        <div className="police-match-actions">
-          <button
-            type="button"
-            className="modern-btn primary"
-            disabled={updating}
-            onClick={() => onDecision(match.log_id, "confirm-match")}
-          >
-            <Icon name="check" />
-            Confirm
-          </button>
-          <button
-            type="button"
-            className="modern-btn secondary"
-            disabled={updating}
-            onClick={() => onDecision(match.log_id, "reject-match")}
-          >
-            <Icon name="x" />
-            Reject
-          </button>
-        </div>
+    <article className="police-case-card">
+      {match.photo_url ? (
+        <img
+          src={match.photo_url}
+          alt={match.name ?? "Matched person"}
+          className="police-case-photo"
+        />
       ) : (
-        <div className="match-final-status">
-          <StatusBadge status={match.status} />
+        <div className="police-case-photo police-case-placeholder">
+          <Icon name="camera" />
         </div>
       )}
 
+      <div className="police-case-body">
+        <div>
+          <h3>{match.name ?? "Unknown Person"}</h3>
+          <p>
+            Case: PH-{match.case_id.substring(0, 5).toUpperCase()}
+          </p>
+          <p style={{ fontSize: "12px" }}>
+            <strong>Assigned to:</strong> {match.owner_station_name || "Unknown Station"}
+          </p>
+        </div>
+
+
+        <div className="police-case-meta">
+          <span>Age {match.age ?? "N/A"}</span>
+          <span>{match.gender ?? "N/A"}</span>
+          {match.status === "pending" ? (
+            <StatusBadge status="pending" />
+          ) : (
+            <StatusBadge status={match.status} />
+          )}
+          <span>Missing since {formatDate(match.missing_date)}</span>
+        </div>
+        <SimilarityMeter score={scorePercent} />
+      </div>
+
+
+      <div className="police-case-actions">
+        <div className="police-case-buttons">
+          <button
+            type="button"
+            className="button ghost small"
+            onClick={() => onViewDetail(match)}
+          >
+            View Details
+          </button>
+
+          {match.status === "pending" && !isOwner ? (
+            <button
+              type="button"
+              className="button primary small"
+              disabled={notifyingLogId === match.case_id}
+              onClick={() => onNotifyOwner(match.case_id, match.log_id)}
+            >
+              <Icon name="scan" />
+              {notifyingLogId === match.case_id ? "Notifying..." : "Notify Owner Station"}
+            </button>
+          ) : null}
+        </div>
+      </div>
     </article>
   );
 }
+
+
+
+const BULK_NOTIFY_THRESHOLD = 2;
 
 function MatchWorkbench({
   photo,
   matches,
   foundCaseId,
   matching,
-  updatingLogId,
   onPhotoChange,
   onSubmit,
-  onDecision,
+  onViewDetail,
+  onNotifyOwner,
+  onNotifyAll,
+  notifyingAll,
+  currentStationId,
+  notifyingLogId,
 }: {
   photo: File | null;
   matches: MatchLog[];
   foundCaseId: string;
   matching: boolean;
-  updatingLogId: string;
   onPhotoChange: (photo: File | null) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onDecision: (logId: string, action: "confirm-match" | "reject-match") => void;
+  onViewDetail: (match: MatchLog) => void;
+  onNotifyOwner: (caseId: string, logId: string) => void;
+  onNotifyAll: () => void;
+  notifyingAll: boolean;
+  currentStationId: string | null;
+  notifyingLogId: string | null;
 }) {
+  const distinctOtherStations = useMemo(() => {
+    const ids = new Set(
+      matches
+        .filter((m) => m.owner_station_id && m.owner_station_id !== currentStationId)
+        .map((m) => m.owner_station_id as string),
+    );
+    return ids.size;
+  }, [matches, currentStationId]);
+
+
   return (
     <section className="panel police-match-workbench">
       <SectionHeader
@@ -665,11 +812,7 @@ function MatchWorkbench({
           <span>
             <strong>{photo ? photo.name : "Upload a clear face photo"}</strong>
           </span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => onPhotoChange(event.target.files?.[0] ?? null)}
-          />
+          <input type="file" accept="image/*" onChange={(event) => onPhotoChange(event.target.files?.[0] ?? null)} />
         </label>
 
         <button type="submit" className="modern-btn primary" disabled={matching}>
@@ -680,8 +823,39 @@ function MatchWorkbench({
 
       {foundCaseId ? (
         <p className="police-found-id">
-          Found report: <span className="mono">{foundCaseId}</span>
+          Found report: <span className="mono">PH-{foundCaseId.substring(0, 5).toUpperCase()}</span>
         </p>
+      ) : null}
+
+      {distinctOtherStations > BULK_NOTIFY_THRESHOLD ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+            padding: "14px 16px",
+            marginBottom: "16px",
+            background: "rgba(59, 130, 246, 0.08)",
+            border: "1px dashed rgba(59, 130, 246, 0.3)",
+            borderRadius: "12px",
+          }}
+        >
+          <span style={{ fontWeight: 700, fontSize: "13px" }}>
+            This match spans {distinctOtherStations} other stations.
+          </span>
+          <button
+            type="button"
+            className="modern-btn primary"
+            style={{ background: "var(--accent-tint, #3b82f6)", color: "white" }}
+            disabled={notifyingAll}
+            onClick={onNotifyAll}
+          >
+            {/* <Icon name="scan" /> */}
+            {notifyingAll ? "Notifying All..." : `Notify All ${distinctOtherStations} Stations`}
+          </button>
+        </div>
       ) : null}
 
       <div className="police-match-grid">
@@ -689,8 +863,10 @@ function MatchWorkbench({
           <MatchResultCard
             key={match.log_id}
             match={match}
-            updating={updatingLogId === match.log_id}
-            onDecision={onDecision}
+            onViewDetail={onViewDetail}
+            onNotifyOwner={onNotifyOwner}
+            currentStationId={currentStationId}
+            notifyingLogId={notifyingLogId}
           />
         ))}
         {matches.length === 0 ? (
@@ -705,11 +881,109 @@ export default function PoliceDashboard() {
   const session = loadAuthSession();
   const [activeTab, setActiveTab] = useState<PoliceTab>("overview");
   const [cases, setCases] = useState<PoliceCase[]>([]);
+  const [caseStatusTab, setCaseStatusTab] = useState<"all" | "active" | "resolved">("active");
+  const [notifyingLogId, setNotifyingLogId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [statusKind, setStatusKind] = useState<"success" | "error">("success");
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [activeMatch, setActiveMatch] = useState<MatchLog | null>(null);
+  const [notifyingAll, setNotifyingAll] = useState(false);
+  const [profilePassword, setProfilePassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showProfilePassword, setShowProfilePassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    stationName?: string;
+    email?: string;
+    password?: string;
+    confirmPassword?: string;
+  }>({});
+  const handleViewMatchDetail = (match: MatchLog) => {
+    setActiveMatch(match);
+    void loadCaseDetail(match.case_id);
+  };
+
+  const handleNotificationClick = async (notif: { type?: string; case_id?: string; log_id?: string }) => {
+    const actionableTypes = new Set(["match_suggestion", "match_suggestion_bulk"]);
+
+    if (notif.log_id && (!notif.type || actionableTypes.has(notif.type))) {
+      setActiveTab("matches");
+      try {
+        const response = await api.get(`${API_PATHS.match}/log/${notif.log_id}`);
+        const match: MatchLog = { ...response.data, status: response.data.status ?? "pending" };
+        setActiveMatch(match);
+        await loadCaseDetail(match.case_id);
+      } catch (error) {
+        setStatusKind("error");
+        setStatus(getErrorMessage(error));
+      }
+      return;
+    }
+
+    if (notif.case_id) {
+      setActiveTab("cases");
+      setActiveMatch(null);
+      void loadCaseDetail(notif.case_id);
+    }
+  };
+
+  const handleNotifyAllOwners = async () => {
+    if (!foundCaseId) return;
+    setNotifyingAll(true);
+    try {
+      const response = await api.post(`${API_PATHS.match}/notify-owners-bulk`, {
+        found_case_id: foundCaseId,
+      });
+      setStatusKind("success");
+      setStatus(response.data?.message ?? "Notified all matched stations.");
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setNotifyingAll(false);
+    }
+  };
+
+
+  // Auto-dismiss status banner after 4 seconds
+  useStatusDismiss(status, setStatus);
+
+  const handleNotifyOwner = async (caseId: string, logId: string) => {
+    setNotifyingLogId(caseId);
+    try {
+      await api.post(`${API_PATHS.match}/notify-owner`, { case_id: caseId, log_id: logId });
+      setStatusKind("success");
+      setStatus("Notification sent to owner station successfully.");
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setNotifyingLogId(null);
+    }
+  };
+
+  const handleUpdateCaseStatus = async (caseId: string, newStatus: string) => {
+    setUpdatingStatus(caseId);
+    setStatus("");
+    try {
+      const response = await api.put(`${API_PATHS.police}/case/${caseId}/status`, { status: newStatus });
+      setStatusKind("success");
+      setStatus(response.data?.message ?? "Case status updated successfully.");
+
+      if (selectedCaseId === caseId) {
+        await loadCaseDetail(caseId);
+      }
+      await loadCases();
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setUpdatingStatus(null);
+    }
+  };
   const [caseDetail, setCaseDetail] = useState<PoliceCaseDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
@@ -719,8 +993,13 @@ export default function PoliceDashboard() {
   const [matching, setMatching] = useState(false);
   const [updatingLogId, setUpdatingLogId] = useState("");
   const [profileName, setProfileName] = useState(
-    localStorage.getItem("policeName") ??
     session?.name ??
+    localStorage.getItem("policeName") ??
+    "Police Station"
+  );
+  const [sidebarName, setSidebarName] = useState(
+    session?.name ??
+    localStorage.getItem("policeName") ??
     "Police Station"
   );
   const [profileEmail, setProfileEmail] = useState(
@@ -728,8 +1007,18 @@ export default function PoliceDashboard() {
     localStorage.getItem("policeEmail") ??
     ""
   );
-  const [profilePassword, setProfilePassword] = useState("");
-  const [showProfilePassword, setShowProfilePassword] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (caseDetail) {
+      setTimeout(() => {
+        const element = document.querySelector(".police-detail-panel");
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 100);
+    }
+  }, [caseDetail]);
 
   const loadCases = useCallback(async () => {
     setLoading(true);
@@ -754,8 +1043,8 @@ export default function PoliceDashboard() {
   }, [loadCases]);
 
   const stats = useMemo(() => {
-    const activeStatuses = new Set(["missing", "active", "pending", "verified"]);
-    const resolvedStatuses = new Set(["found", "resolved", "confirmed"]);
+    const activeStatuses = new Set(["missing"]);
+    const resolvedStatuses = new Set(["found"]);
     const activeCases = cases.filter((item) =>
       activeStatuses.has(normalizeStatus(item.status)),
     ).length;
@@ -778,11 +1067,19 @@ export default function PoliceDashboard() {
   const filteredCases = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
+    const tabFiltered = cases.filter((item) => {
+      const status = normalizeStatus(item.status);
+      if (caseStatusTab === "all") return true;
+      if (caseStatusTab === "active") return status === "missing";
+      if (caseStatusTab === "resolved") return status === "found";
+      return true;
+    });
+
     if (!query) {
-      return cases;
+      return tabFiltered;
     }
 
-    return cases.filter((item) =>
+    return tabFiltered.filter((item) =>
       [
         item.case_id,
         item.name ?? "",
@@ -791,7 +1088,7 @@ export default function PoliceDashboard() {
         item.missing_date ?? "",
       ].some((value) => value.toLowerCase().includes(query)),
     );
-  }, [cases, searchQuery]);
+  }, [cases, searchQuery, caseStatusTab]);
 
   const filteredMatches = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -890,17 +1187,89 @@ export default function PoliceDashboard() {
     }
   };
 
-  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    localStorage.setItem("policeName", profileName.trim());
-    localStorage.setItem("policeEmail", profileEmail.trim());
-    setProfilePassword("");
-    setStatusKind("success");
-    setStatus(
-      profilePassword
-        ? "Profile saved locally. Password changes need a backend endpoint."
-        : "Profile saved locally.",
-    );
+    setStatus("");
+
+    const nextName = profileName.trim();
+    const nextEmail = profileEmail.trim();
+    const errors: typeof fieldErrors = {};
+
+    if (!nextName) {
+      errors.stationName = "Station name is required.";
+    }
+
+    if (!nextEmail) {
+      errors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      errors.email = "Please enter a valid email address.";
+    }
+
+    if (profilePassword) {
+      if (profilePassword.length < 8) {
+        errors.password = "New password must be at least 8 characters.";
+      }
+      if (confirmPassword !== profilePassword) {
+        errors.confirmPassword = "Passwords do not match.";
+      }
+    } else if (confirmPassword) {
+      errors.password = "Enter a new password first.";
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      return;
+    }
+
+    setSavingProfile(true);
+
+    try {
+      const payload: {
+        station_name: string;
+        email: string;
+        password?: string;
+      } = {
+        station_name: nextName,
+        email: nextEmail,
+      };
+
+      if (profilePassword) {
+        payload.password = profilePassword;
+      }
+
+      const response = await api.put(`${API_PATHS.police}/profile`, payload);
+      const updatedName = response.data?.name ?? nextName;
+      const updatedEmail = response.data?.email ?? nextEmail;
+
+      setProfileName(updatedName);
+      setSidebarName(updatedName);
+      setProfileEmail(updatedEmail);
+      localStorage.setItem("policeName", updatedName);
+      localStorage.setItem("policeEmail", updatedEmail);
+
+      if (session) {
+        saveAuthSession({
+          ...session,
+          name: updatedName,
+          email: updatedEmail,
+        });
+      }
+
+      setProfilePassword("");
+      setConfirmPassword("");
+      setStatusKind("success");
+      setStatus(
+        profilePassword
+          ? "Profile updated successfully. Password was also changed."
+          : "Profile updated successfully.",
+      );
+    } catch (error) {
+      setStatusKind("error");
+      setStatus(getErrorMessage(error));
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const renderOverview = () => (
@@ -950,37 +1319,6 @@ export default function PoliceDashboard() {
         <StatCard label="Active Cases" value={stats.active} icon="clock" tone="amber" />
         <StatCard label="Resolved" value={stats.resolved} icon="check" tone="blue" />
         <StatCard label="Child Cases" value={stats.urgent} icon="shield" tone="rose" />
-      </section>
-
-      <section className="police-feature-grid">
-        <button type="button" onClick={() => setActiveTab("cases")}>
-          <Icon name="file" />
-          <strong>Assigned Cases</strong>
-          <span>Open every case assigned to this station and review details.</span>
-        </button>
-        <button type="button" onClick={() => setActiveTab("matches")}>
-          <Icon name="scan" />
-          <strong>AI Match Found</strong>
-          <span>Upload a found-person photo and compare it with missing cases.</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (cases[0]) {
-              void loadCaseDetail(cases[0].case_id);
-              setActiveTab("cases");
-            }
-          }}
-        >
-          <Icon name="activity" />
-          <strong>Case Detail</strong>
-          <span>Inspect basic, physical, clothing, family, and case data.</span>
-        </button>
-        <button type="button" onClick={() => setActiveTab("profile")}>
-          <Icon name="user" />
-          <strong>Profile</strong>
-          <span>Update local station display details and password visibility.</span>
-        </button>
       </section>
 
       <section className="police-dashboard-grid">
@@ -1087,12 +1425,43 @@ export default function PoliceDashboard() {
           }
         />
 
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "20px", borderBottom: "1px solid var(--line)", paddingBottom: "16px" }}>
+          <button
+            type="button"
+            className={`modern-btn ${caseStatusTab === "all" ? "primary" : "secondary"}`}
+            style={{ padding: "8px 16px", fontSize: "13px" }}
+            onClick={() => setCaseStatusTab("all")}
+          >
+            All Cases ({cases.length})
+          </button>
+          <button
+            type="button"
+            className={`modern-btn ${caseStatusTab === "active" ? "primary" : "secondary"}`}
+            style={{ padding: "8px 16px", fontSize: "13px" }}
+            onClick={() => setCaseStatusTab("active")}
+          >
+            Active / Missing ({cases.filter(c => normalizeStatus(c.status) === "missing").length})
+          </button>
+          <button
+            type="button"
+            className={`modern-btn ${caseStatusTab === "resolved" ? "primary" : "secondary"}`}
+            style={{ padding: "8px 16px", fontSize: "13px" }}
+            onClick={() => setCaseStatusTab("resolved")}
+          >
+            Resolved / Found ({cases.filter(c => normalizeStatus(c.status) === "found").length})
+          </button>
+        </div>
         <div className="police-case-grid">
           {filteredCases.map((item) => (
             <CaseCard
               key={item.case_id}
               item={item}
-              onView={(caseId) => void loadCaseDetail(caseId)}
+              onView={(caseId) => {
+                setActiveMatch(null);
+                void loadCaseDetail(caseId);
+              }}
+              onMarkFound={(caseId) => void handleUpdateCaseStatus(caseId, "found")}
+              updatingCaseId={updatingStatus}
             />
           ))}
           {filteredCases.length === 0 ? (
@@ -1106,6 +1475,9 @@ export default function PoliceDashboard() {
         detail={caseDetail}
         loading={detailLoading}
         error={detailError}
+        currentStationId={session?.id ?? null}
+        updatingStatus={Boolean(updatingStatus)}
+        onUpdateStatus={handleUpdateCaseStatus}
         onClose={() => {
           setSelectedCaseId(null);
           setCaseDetail(null);
@@ -1122,10 +1494,41 @@ export default function PoliceDashboard() {
         matches={filteredMatches}
         foundCaseId={foundCaseId}
         matching={matching}
-        updatingLogId={updatingLogId}
+        // updatingLogId={updatingLogId}
         onPhotoChange={setMatchPhoto}
         onSubmit={runMatch}
-        onDecision={(logId, action) => void updateMatchStatus(logId, action)}
+        onViewDetail={handleViewMatchDetail}
+        onNotifyOwner={handleNotifyOwner}
+        onNotifyAll={() => void handleNotifyAllOwners()}
+        notifyingAll={notifyingAll}
+        currentStationId={session?.id || null}
+        notifyingLogId={notifyingLogId}
+      />
+      <CaseDetailPanel
+        caseId={selectedCaseId}
+        detail={caseDetail}
+        loading={detailLoading}
+        error={detailError}
+        currentStationId={session?.id ?? null}
+        updatingStatus={Boolean(updatingStatus)}
+        onUpdateStatus={handleUpdateCaseStatus}
+        matchContext={
+          activeMatch
+            ? {
+              match: activeMatch,
+              updating: updatingLogId === activeMatch.log_id,
+              notifying: notifyingLogId === activeMatch.case_id,
+              onConfirm: (logId) => void updateMatchStatus(logId, "confirm-match"),
+              onNotifyOwner: handleNotifyOwner,
+            }
+            : null
+        }
+        onClose={() => {
+          setSelectedCaseId(null);
+          setCaseDetail(null);
+          setDetailError("");
+          setActiveMatch(null);
+        }}
       />
     </div>
   );
@@ -1136,10 +1539,10 @@ export default function PoliceDashboard() {
         <SectionHeader
           eyebrow="Station profile"
           title="Profile Settings"
-          subtitle="These display details are saved locally until profile update APIs exist."
+          subtitle="Manage your police station display details and secure your account credentials."
         />
 
-        <form className="wizard-form" onSubmit={saveProfile}>
+        <form className="wizard-form" onSubmit={saveProfile} noValidate>
           <div className="profile-preview">
             <span className="hero-avatar compact-avatar" aria-hidden="true">
               {profileName
@@ -1160,8 +1563,15 @@ export default function PoliceDashboard() {
               <span>Station Name</span>
               <input
                 value={profileName}
-                onChange={(event) => setProfileName(event.target.value)}
+                onChange={(event) => {
+                  setProfileName(event.target.value);
+                  setFieldErrors((current) => ({ ...current, stationName: undefined }));
+                }}
+                aria-invalid={Boolean(fieldErrors.stationName)}
               />
+              {fieldErrors.stationName ? (
+                <span className="field-error">{fieldErrors.stationName}</span>
+              ) : null}
             </label>
 
             <label className="form-group">
@@ -1169,9 +1579,16 @@ export default function PoliceDashboard() {
               <input
                 type="email"
                 value={profileEmail}
-                onChange={(event) => setProfileEmail(event.target.value)}
+                onChange={(event) => {
+                  setProfileEmail(event.target.value);
+                  setFieldErrors((current) => ({ ...current, email: undefined }));
+                }}
                 placeholder="station@example.com"
+                aria-invalid={Boolean(fieldErrors.email)}
               />
+              {fieldErrors.email ? (
+                <span className="field-error">{fieldErrors.email}</span>
+              ) : null}
             </label>
 
             <label className="form-group full-span">
@@ -1180,27 +1597,64 @@ export default function PoliceDashboard() {
                 <input
                   type={showProfilePassword ? "text" : "password"}
                   value={profilePassword}
-                  onChange={(event) => setProfilePassword(event.target.value)}
+                  onChange={(event) => {
+                    setProfilePassword(event.target.value);
+                    setFieldErrors((current) => ({ ...current, password: undefined }));
+                  }}
                   placeholder="Enter a new password"
+                  aria-invalid={Boolean(fieldErrors.password)}
                 />
                 <button
                   type="button"
                   className="password-toggle"
                   onClick={() => setShowProfilePassword((current) => !current)}
-                  aria-label={
-                    showProfilePassword ? "Hide password" : "Show password"
-                  }
+                  aria-label={showProfilePassword ? "Hide password" : "Show password"}
                 >
                   <PasswordEyeIcon visible={showProfilePassword} />
                 </button>
               </div>
+              {fieldErrors.password ? (
+                <span className="field-error">{fieldErrors.password}</span>
+              ) : null}
+            </label>
+
+            <label className="form-group full-span">
+              <span>Confirm New Password</span>
+              <div className="password-wrapper">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(event) => {
+                    setConfirmPassword(event.target.value);
+                    setFieldErrors((current) => ({ ...current, confirmPassword: undefined }));
+                  }}
+                  onBlur={() => {
+                    if (profilePassword && confirmPassword && confirmPassword !== profilePassword) {
+                      setFieldErrors((current) => ({ ...current, confirmPassword: "Passwords do not match." }));
+                    }
+                  }}
+                  placeholder="Re-enter the new password"
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowConfirmPassword((current) => !current)}
+                  aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  <PasswordEyeIcon visible={showConfirmPassword} />
+                </button>
+              </div>
+              {fieldErrors.confirmPassword ? (
+                <span className="field-error">{fieldErrors.confirmPassword}</span>
+              ) : null}
             </label>
           </div>
 
           <div className="wizard-actions">
             <span />
-            <button type="submit" className="modern-btn primary">
-              Save Changes
+            <button type="submit" className="modern-btn primary" disabled={savingProfile}>
+              {savingProfile ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </form>
@@ -1234,10 +1688,11 @@ export default function PoliceDashboard() {
       role="police"
       activeTab={activeTab}
       onTabChange={(tab) => setActiveTab(tab as PoliceTab)}
-      userName={profileName}
+      userName={sidebarName}
       searchTerm={searchQuery}
       onSearchChange={setSearchQuery}
       searchPlaceholder={searchPlaceholder}
+      onNotificationClick={handleNotificationClick}
     >
       {loading ? (
         <div className="loading-overlay police-loading">
